@@ -1,0 +1,102 @@
+[
+  {
+    "question_text": "O'zbekiston Respublikasi davlat mustaqilligi qachon e'lon qilingan?",
+    "option_a": "1991-yil 31-avgust",
+    "option_b": "1991-yil 1-sentyabr",
+    "option_c": "1992-yil 8-dekabr",
+    "option_d": "1990-yil 20-iyun",
+    "correct_option": "A",
+    "explanation": "O'zbekiston Respublikasining davlat mustaqilligi 1991-yil 31-avgustda e'lon qilingan.",
+    "category": "Tarix"
+  },
+  {
+    "question_text": "O'zbekiston Respublikasining amaldagi Konstitutsiyasi qachon qabul qilingan (dastlabki)?",
+    "option_a": "1991-yil 18-noyabr",
+    "option_b": "1992-yil 8-dekabr",
+    "option_c": "1993-yil 2-iyul",
+    "option_d": "1994-yil 1-iyul",
+    "correct_option": "B",
+    "explanation": "O'zbekiston Respublikasi Konstitutsiyasi 1992-yil 8-dekabrda qabul qilingan.",
+    "category": "Huquq"
+  },
+  {
+    "question_text": "Dunyoning eng baland cho'qqisi qaysi?",
+    "option_a": "K2 (Chogori)",
+    "option_b": "Kanchenjanga",
+    "option_c": "Everest (Jomolungma)",
+    "option_d": "Elbrus",
+    "correct_option": "C",
+    "explanation": "Everest cho'qqisi 8848 metr balandlik bilan dunyoda birinchi o'rinda turadi.",
+    "category": "Geografiya"
+  },
+  {
+    "question_text": "Kompyuterning asosiy hisoblash va boshqaruv qurilmasi nima deb ataladi?",
+    "option_a": "Operativ xotira (RAM)",
+    "option_b": "Markaziy protsessor (CPU)",
+    "option_c": "Qattiq disk (HDD/SSD)",
+    "option_d": "Videokarta (GPU)",
+    "correct_option": "B",
+    "explanation": "Markaziy protsessor (CPU) barcha asosiy amallarni bajaruvchi kompyuter 'miyasi' hisoblanadi.",
+    "category": "Informatika"
+  },
+  {
+    "question_text": "Alisher Navoiy qaysi asrning buyuk shoiri va mutafakkiri hisoblanadi?",
+    "option_a": "XIV asr",
+    "option_b": "XV asr",
+    "option_c": "XVI asr",
+    "option_d": "XVII asr",
+    "correct_option": "B",
+    "explanation": "Alisher Navoiy 1441-1501-yillarda, ya'ni XV asrda yashab ijod etgan.",
+    "category": "Adabiyot"
+  },
+  {
+    "question_text": "Python dasturlash tilida ro'yxat (list) qaysi qavslar yordamida hosil qilinadi?",
+    "option_a": "Dumaloq qavs: ( )",
+    "option_b": "Figurali qavs: { }",
+    "option_c": "Kvadrat qavs: [ ]",
+    "option_d": "Burchakli qavs: < >",
+    "correct_option": "C",
+    "explanation": "Python'da ro'yxatlar kvadrat qavslar [] yordamida yoziladi.",
+    "category": "Informatika"
+  },
+  {
+    "question_text": "Quyosh sistemasidagi eng katta sayyora qaysi?",
+    "option_a": "Saturn",
+    "option_b": "Yupiter",
+    "option_c": "Uran",
+    "option_d": "Neptun",
+    "correct_option": "B",
+    "explanation": "Yupiter Quyosh sistemasidagi eng ulkan gaz giganti sayyoradir.",
+    "category": "Astronomiya"
+  },
+  {
+    "question_text": "Inson tanasidagi eng katta ichki a'zo qaysi?",
+    "option_a": "Yurak",
+    "option_b": "O'pka",
+    "option_c": "Jigar",
+    "option_d": "Buyrak",
+    "correct_option": "C",
+    "explanation": "Jigar inson organizmidagi eng og'ir va eng katta ichki organdir.",
+    "category": "Biologiya"
+  },
+  {
+    "question_text": "Amir Temur qachon va qayerda tavallud topgan?",
+    "option_a": "1336-yil Kesh (Shahrisabz)",
+    "option_b": "1342-yil Samarqand",
+    "option_c": "1328-yil Buxoro",
+    "option_d": "1350-yil Toshkent",
+    "correct_option": "A",
+    "explanation": "Sohibqiron Amir Temur 1336-yil 9-aprelda Shahrisabz yaqinidagi Xo'ja Ilg'or qishlog'ida tug'ilgan.",
+    "category": "Tarix"
+  },
+  {
+    "question_text": "Dunyodagi eng chuqur ko'l qaysi?",
+    "option_a": "Kaspiy dengizi",
+    "option_b": "Viktoriya ko'li",
+    "option_c": "Baykal ko'li",
+    "option_d": "Tanganika ko'li",
+    "correct_option": "C",
+    "explanation": "Baykal ko'li 1642 metr chuqurlik bilan dunyodagi eng chuqur chuchuk suv ko'lidir.",
+    "category": "Geografiya"
+  }
+]

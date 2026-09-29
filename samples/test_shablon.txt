@@ -1,0 +1,79 @@
+1. O'zbekiston Respublikasi davlat mustaqilligi qachon e'lon qilingan?
+A) 1991-yil 31-avgust
+B) 1991-yil 1-sentyabr
+C) 1992-yil 8-dekabr
+D) 1990-yil 20-iyun
+Javob: A
+Izoh: O'zbekiston Respublikasining davlat mustaqilligi 1991-yil 31-avgustda e'lon qilingan.
+
+2. O'zbekiston Respublikasining amaldagi Konstitutsiyasi qachon qabul qilingan (dastlabki)?
+A) 1991-yil 18-noyabr
+B) 1992-yil 8-dekabr
+C) 1993-yil 2-iyul
+D) 1994-yil 1-iyul
+Javob: B
+Izoh: O'zbekiston Respublikasi Konstitutsiyasi 1992-yil 8-dekabrda qabul qilingan.
+
+3. Dunyoning eng baland cho'qqisi qaysi?
+A) K2 (Chogori)
+B) Kanchenjanga
+C) Everest (Jomolungma)
+D) Elbrus
+Javob: C
+Izoh: Everest cho'qqisi 8848 metr balandlik bilan dunyoda birinchi o'rinda turadi.
+
+4. Kompyuterning asosiy hisoblash va boshqaruv qurilmasi nima deb ataladi?
+A) Operativ xotira (RAM)
+B) Markaziy protsessor (CPU)
+C) Qattiq disk (HDD/SSD)
+D) Videokarta (GPU)
+Javob: B
+Izoh: Markaziy protsessor (CPU) barcha asosiy amallarni bajaruvchi kompyuter 'miyasi' hisoblanadi.
+
+5. Alisher Navoiy qaysi asrning buyuk shoiri va mutafakkiri hisoblanadi?
+A) XIV asr
+B) XV asr
+C) XVI asr
+D) XVII asr
+Javob: B
+Izoh: Alisher Navoiy 1441-1501-yillarda, ya'ni XV asrda yashab ijod etgan.
+
+6. Python dasturlash tilida ro'yxat (list) qaysi qavslar yordamida hosil qilinadi?
+A) Dumaloq qavs: ( )
+B) Figurali qavs: { }
+C) Kvadrat qavs: [ ]
+D) Burchakli qavs: < >
+Javob: C
+Izoh: Python'da ro'yxatlar kvadrat qavslar [] yordamida yoziladi.
+
+7. Quyosh sistemasidagi eng katta sayyora qaysi?
+A) Saturn
+B) Yupiter
+C) Uran
+D) Neptun
+Javob: B
+Izoh: Yupiter Quyosh sistemasidagi eng ulkan gaz giganti sayyoradir.
+
+8. Inson tanasidagi eng katta ichki a'zo qaysi?
+A) Yurak
+B) O'pka
+C) Jigar
+D) Buyrak
+Javob: C
+Izoh: Jigar inson organizmidagi eng og'ir va eng katta ichki organdir.
+
+9. Amir Temur qachon va qayerda tavallud topgan?
+A) 1336-yil Kesh (Shahrisabz)
+B) 1342-yil Samarqand
+C) 1328-yil Buxoro
+D) 1350-yil Toshkent
+Javob: A
+Izoh: Sohibqiron Amir Temur 1336-yil 9-aprelda Shahrisabz yaqinidagi Xo'ja Ilg'or qishlog'ida tug'ilgan.
+
+10. Dunyodagi eng chuqur ko'l qaysi?
+A) Kaspiy dengizi
+B) Viktoriya ko'li
+C) Baykal ko'li
+D) Tanganika ko'li
+Javob: C
+Izoh: Baykal ko'li 1642 metr chuqurlik bilan dunyodagi eng chuqur chuchuk suv ko'lidir.
