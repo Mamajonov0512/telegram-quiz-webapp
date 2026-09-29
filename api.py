@@ -83,6 +83,13 @@ class SettingsUpdateRequest(BaseModel):
     duration_minutes: Optional[int] = None
     pass_percentage: Optional[int] = None
 
+class UpdateCategoryRequest(BaseModel):
+    category: str
+
+class RenameAllCategoryRequest(BaseModel):
+    new_category: str
+    old_category: Optional[str] = None
+
 # --- HTML ROUTES ---
 
 @app.get("/", response_class=HTMLResponse)
@@ -362,6 +369,20 @@ async def api_admin_delete_question(qid: int, x_admin_key: Optional[str] = Heade
         raise HTTPException(status_code=401, detail="Administrator kaliti noto'g'ri.")
     success = db.delete_question(qid)
     return {"success": success}
+
+@app.post("/api/admin/questions/{qid}/category")
+async def api_admin_update_question_category(qid: int, data: UpdateCategoryRequest, x_admin_key: Optional[str] = Header(None)):
+    if not verify_admin(x_admin_key):
+        raise HTTPException(status_code=401, detail="Administrator kaliti noto'g'ri.")
+    success = db.update_question_category(qid, data.category)
+    return {"success": success}
+
+@app.post("/api/admin/questions/rename-category")
+async def api_admin_rename_category(data: RenameAllCategoryRequest, x_admin_key: Optional[str] = Header(None)):
+    if not verify_admin(x_admin_key):
+        raise HTTPException(status_code=401, detail="Administrator kaliti noto'g'ri.")
+    count = db.update_all_questions_category(new_category=data.new_category, old_category=data.old_category)
+    return {"success": True, "updated_count": count}
 
 @app.post("/api/admin/questions/clear")
 async def api_admin_clear_questions(x_admin_key: Optional[str] = Header(None)):

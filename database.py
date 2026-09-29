@@ -264,6 +264,26 @@ def delete_question(question_id: int) -> bool:
     conn.close()
     return True
 
+def update_question_category(question_id: int, new_category: str) -> bool:
+    conn = get_connection()
+    cursor = conn.cursor()
+    cursor.execute("UPDATE questions SET category = ? WHERE id = ?", (new_category.strip(), question_id))
+    conn.commit()
+    conn.close()
+    return True
+
+def update_all_questions_category(new_category: str, old_category: Optional[str] = None) -> int:
+    conn = get_connection()
+    cursor = conn.cursor()
+    if old_category:
+        cursor.execute("UPDATE questions SET category = ? WHERE category = ?", (new_category.strip(), old_category.strip()))
+    else:
+        cursor.execute("UPDATE questions SET category = ?", (new_category.strip(),))
+    updated_rows = cursor.rowcount
+    conn.commit()
+    conn.close()
+    return updated_rows
+
 def get_test_questions(count: int = 50, shuffle: bool = True) -> List[Dict[str, Any]]:
     conn = get_connection()
     cursor = conn.cursor()

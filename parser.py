@@ -61,7 +61,7 @@ def parse_excel(file_bytes: bytes) -> Tuple[List[Dict[str, Any]], List[str]]:
                     col_map["correct"] = idx
                 elif "izoh" in val or "explanation" in val:
                     col_map["explanation"] = idx
-                elif "kategoriya" in val or "category" in val:
+                elif "kategoriya" in val or "category" in val or "fan" in val or "mavzu" in val or "subject" in val:
                     col_map["category"] = idx
 
             # Fallbacks if columns missing
@@ -331,6 +331,13 @@ def parse_text(text: str) -> Tuple[List[Dict[str, Any]], List[str]]:
             exp_match = re.match(r"^(?:Izoh|Tushuntirish|Explanation):\s*(.+)$", line, re.IGNORECASE)
             if exp_match:
                 explanation = exp_match.group(1).strip()
+                idx += 1
+                continue
+
+            # Check for category / fan
+            cat_match = re.match(r"^(?:Fan|Fan\s*nomi|Kategoriya|Category|Mavzu|Subject):\s*(.+)$", line, re.IGNORECASE)
+            if cat_match:
+                category = cat_match.group(1).strip()
                 idx += 1
                 continue
 

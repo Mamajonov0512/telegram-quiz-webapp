@@ -338,8 +338,14 @@
 
         <!-- Questions Table -->
         <div class="admin-card">
-          <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px;">
+          <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px; flex-wrap: wrap; gap: 10px;">
             <h3>Bazadagi savollar (<span id="questionsTableCount">0</span> ta)</h3>
+            <div style="display: flex; gap: 8px; align-items: center;">
+              <input type="text" id="bulkCategoryInput" class="form-control" style="width: 200px; padding: 6px 10px; font-size: 13px;" placeholder="Yangi fan nomi...">
+              <button class="btn btn-outline" style="padding: 6px 12px; font-size: 13px;" onclick="renameAllCategories()">
+                ✏️ Fanni o'zgartirish
+              </button>
+            </div>
           </div>
 
           <div class="table-wrapper">

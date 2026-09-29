@@ -461,7 +461,11 @@ async function loadQuestionsData() {
           D: ${escapeHtml(q.option_d)}
         </td>
         <td><strong style="color: var(--success);">${q.correct_option}</strong></td>
-        <td><span style="font-size: 12px; background: rgba(255,255,255,0.05); padding: 2px 6px; border-radius: 4px;">${escapeHtml(q.category || 'Umumiy')}</span></td>
+        <td>
+          <span style="font-size: 12px; background: rgba(59,130,246,0.15); color: var(--primary); padding: 4px 8px; border-radius: 6px; cursor: pointer; border: 1px solid rgba(59,130,246,0.3); display: inline-block;" title="Fanni o'zgartirish uchun bosing" onclick="editSingleCategory(${q.id}, '${escapeHtml(q.category || 'Umumiy')}')">
+            ✏️ ${escapeHtml(q.category || 'Umumiy')}
+          </span>
+        </td>
         <td>
           <button class="btn btn-outline btn-danger" style="padding: 4px 8px; font-size: 12px;" onclick="deleteQuestion(${q.id})">
             🗑️
@@ -472,6 +476,50 @@ async function loadQuestionsData() {
     });
   } catch (err) {
     console.error("Questions load error:", err);
+  }
+}
+
+async function editSingleCategory(qid, currentCat) {
+  const newCat = prompt("Yangi fan / kategoriya nomini kiriting:", currentCat);
+  if (!newCat || newCat.trim() === '' || newCat.trim() === currentCat) return;
+
+  try {
+    const res = await fetch(`/api/admin/questions/${qid}/category`, {
+      method: 'POST',
+      headers: getHeaders(),
+      body: JSON.stringify({ category: newCat.trim() })
+    });
+    if (res.ok) {
+      loadQuestionsData();
+    }
+  } catch (err) {
+    alert("Xatolik: " + err.message);
+  }
+}
+
+async function renameAllCategories() {
+  const input = document.getElementById('bulkCategoryInput');
+  const newCat = input.value.trim();
+  if (!newCat) {
+    alert("Iltimos, yangi fan nomini kiriting!");
+    return;
+  }
+  if (!confirm(`Barcha savollarning fanini "${newCat}" deb o'zgartirmoqchimisiz?`)) return;
+
+  try {
+    const res = await fetch('/api/admin/questions/rename-category', {
+      method: 'POST',
+      headers: getHeaders(),
+      body: JSON.stringify({ new_category: newCat })
+    });
+    const data = await res.json();
+    if (res.ok && data.success) {
+      alert(`✅ ${data.updated_count} ta savol fani "${newCat}" ga o'zgartirildi!`);
+      input.value = '';
+      loadQuestionsData();
+    }
+  } catch (err) {
+    alert("Xatolik: " + err.message);
   }
 }
 
