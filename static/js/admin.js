@@ -114,6 +114,8 @@ async function saveSettings() {
   } catch (err) {
     alert("Server bilan ulanishda xatolik: " + err.message);
   }
+}
+
 // --- TAB: DETAILED ANALYTICS ---
 async function loadAnalyticsData() {
   try {
