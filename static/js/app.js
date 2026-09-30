@@ -134,7 +134,6 @@ async function checkUserAuth() {
     updateHeaderUI();
 
     if (state.isAllowed) {
-      setupWatermark();
       await loadCategories();
       renderWelcomeScreen();
       switchView('welcomeView');
@@ -190,6 +189,11 @@ async function loadCategories() {
     state.categories = data.categories || [];
     const totalQ = data.total_questions || 0;
 
+    const catContainer = document.getElementById('categorySelectContainer');
+    if (catContainer) {
+      catContainer.style.display = (state.settings.category_filter_enabled === false) ? 'none' : 'block';
+    }
+
     const select = document.getElementById('quizCategorySelect');
     if (!select) return;
 
@@ -221,6 +225,7 @@ function onCategoryChange() {
 }
 
 function getMaxAvailableForCategory() {
+  const maxLimit = state.settings.max_questions_limit || 500;
   let maxAvail = 0;
   if (state.selectedCategory === 'Barchasi') {
     maxAvail = state.categories.reduce((acc, c) => acc + c.count, 0);
@@ -228,7 +233,7 @@ function getMaxAvailableForCategory() {
     const cat = state.categories.find(c => c.name === state.selectedCategory);
     maxAvail = cat ? cat.count : 0;
   }
-  return Math.min(maxAvail || 500, 500);
+  return Math.min(maxAvail || maxLimit, maxLimit);
 }
 
 function adjustCountPillsForCategory() {
@@ -924,21 +929,12 @@ function escapeHtml(str) {
 }
 
 // --- ANTI-COPY & ANTI-SCREENSHOT SECURITY ---
-function setupWatermark() {
-  const overlay = document.getElementById('watermarkOverlay');
-  if (!overlay) return;
-  overlay.innerHTML = '';
-  const dateStr = new Date().toLocaleDateString('uz-UZ');
-  const text = `${state.user.name} • ID: ${state.user.id} • ${dateStr}`;
-  for (let i = 0; i < 32; i++) {
-    const cell = document.createElement('div');
-    cell.className = 'watermark-cell';
-    cell.innerText = text;
-    overlay.appendChild(cell);
-  }
+function isAntiCheatEnabled() {
+  return state.settings ? (state.settings.anti_cheat_enabled !== false) : true;
 }
 
 function triggerSecurityShield(msg) {
+  if (!isAntiCheatEnabled()) return;
   const shield = document.getElementById('securityShield');
   if (shield) {
     if (msg) {
@@ -965,6 +961,7 @@ function isQuizInProgress() {
 function initSecurityShieldAndProtections() {
   // 1. Disable Right Click (Context Menu)
   document.addEventListener('contextmenu', (e) => {
+    if (!isAntiCheatEnabled()) return;
     e.preventDefault();
     showToast("⚠️ O'ng tugma bosish taqiqlangan!");
     return false;
@@ -973,6 +970,7 @@ function initSecurityShieldAndProtections() {
   // 2. Disable Copy, Cut, Paste, Drag, Select
   ['copy', 'cut', 'paste', 'selectstart', 'dragstart'].forEach(evt => {
     document.addEventListener(evt, (e) => {
+      if (!isAntiCheatEnabled()) return;
       // Allow copy only in denied screen copy button
       if (e.target && e.target.closest('#deniedView')) return;
       e.preventDefault();
@@ -986,6 +984,7 @@ function initSecurityShieldAndProtections() {
 
   // 3. Prevent Devtools, Print and Save hotkeys
   document.addEventListener('keydown', (e) => {
+    if (!isAntiCheatEnabled()) return;
     const isDevTools = e.key === 'F12' || (e.ctrlKey && e.shiftKey && ['I', 'J', 'C', 'i', 'j', 'c'].includes(e.key));
     const isSaveOrPrint = e.ctrlKey && ['s', 'S', 'p', 'P', 'u', 'U'].includes(e.key);
     const isCopyOrCut = e.ctrlKey && ['c', 'C', 'x', 'X', 'a', 'A'].includes(e.key);
@@ -1016,13 +1015,13 @@ function initSecurityShieldAndProtections() {
 
   // 4. Blur and visibilitychange detection (Anti-tab-switch / anti-screenshot tool switch)
   window.addEventListener('blur', () => {
-    if (isQuizInProgress()) {
+    if (isAntiCheatEnabled() && isQuizInProgress()) {
       triggerSecurityShield("Diqqat! Test davomida boshqa oynaga o'tish yoki rasmga olish taqiqlangan!");
     }
   });
 
   document.addEventListener('visibilitychange', () => {
-    if (document.hidden && isQuizInProgress()) {
+    if (document.hidden && isAntiCheatEnabled() && isQuizInProgress()) {
       triggerSecurityShield("Diqqat! Test oynasidan chiqish taqiqlangan!");
     }
   });

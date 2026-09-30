@@ -77,38 +77,109 @@
         </div>
 
         <!-- Settings Card -->
+        <!-- Settings Card -->
         <div class="admin-card">
-          <h3 style="margin-bottom: 16px;">Asosiy test sozlamalari</h3>
+          <h3 style="margin-bottom: 16px;">⚙️ Asosiy test va xavfsizlik sozlamalari</h3>
           
-          <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 16px; margin-bottom: 16px;">
+          <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 16px; margin-bottom: 20px;">
             <div>
-              <label class="form-label">Har bir testdagi savollar soni (max 500):</label>
+              <label class="form-label">Standart savollar soni:</label>
               <input type="number" id="settingQuestionCount" class="form-control" value="50" min="1" max="500">
+              <span style="font-size: 11px; color: var(--text-muted);">Standart beriladigan test soni</span>
+            </div>
+            <div>
+              <label class="form-label">Maksimal savollar limiti:</label>
+              <input type="number" id="settingMaxQuestionsLimit" class="form-control" value="500" min="1" max="500">
+              <span style="font-size: 11px; color: var(--text-muted);">Maksimum chegara (500 gacha)</span>
             </div>
             <div>
               <label class="form-label">Test vaqti (daqiqa):</label>
               <input type="number" id="settingDuration" class="form-control" value="50" min="1" max="500">
+              <span style="font-size: 11px; color: var(--text-muted);">Ajratilgan vaqt</span>
             </div>
             <div>
               <label class="form-label">O'tish bali (%):</label>
               <input type="number" id="settingPassPercent" class="form-control" value="60" min="10" max="100">
+              <span style="font-size: 11px; color: var(--text-muted);">Muvaffaqiyat chegarasi</span>
             </div>
           </div>
 
-          <div style="display: flex; align-items: center; justify-content: space-between; padding: 14px; background: rgba(0,0,0,0.2); border-radius: 8px; margin-bottom: 16px;">
-            <div>
-              <div style="font-weight: 600;">Telegram ID bo'yicha cheklash (Whitelist)</div>
-              <div style="font-size: 12px; color: var(--text-muted);">
-                Faqat ruxsat berilgan Telegram ID raqamlariga test topshirishga ruxsat etish
+          <!-- Feature Toggles -->
+          <div style="display: flex; flex-direction: column; gap: 12px; margin-bottom: 20px;">
+            
+            <!-- 1. Whitelist Toggle -->
+            <div style="display: flex; align-items: center; justify-content: space-between; padding: 14px; background: rgba(0,0,0,0.2); border-radius: 8px;">
+              <div>
+                <div style="font-weight: 600;">🔒 Telegram ID bo'yicha cheklash (Whitelist)</div>
+                <div style="font-size: 12px; color: var(--text-muted);">
+                  Faqat ruxsat berilgan Telegram ID raqamlariga test topshirishga ruxsat etish
+                </div>
               </div>
+              <label class="switch">
+                <input type="checkbox" id="settingWhitelistToggle" checked>
+                <span class="slider"></span>
+              </label>
             </div>
-            <label class="switch">
-              <input type="checkbox" id="settingWhitelistToggle" checked>
-              <span class="slider"></span>
-            </label>
+
+            <!-- 2. Category / Group Filter Toggle -->
+            <div style="display: flex; align-items: center; justify-content: space-between; padding: 14px; background: rgba(0,0,0,0.2); border-radius: 8px;">
+              <div>
+                <div style="font-weight: 600;">📚 Testlarni guruhga/fanga ajratish va tanlash</div>
+                <div style="font-size: 12px; color: var(--text-muted);">
+                  Test topshiruvchilarga faqat o'zi tanlagan fan/guruh bo'yicha test ishlash imkonini berish
+                </div>
+              </div>
+              <label class="switch">
+                <input type="checkbox" id="settingCategoryFilterToggle" checked>
+                <span class="slider"></span>
+              </label>
+            </div>
+
+            <!-- 3. Shuffle Questions Toggle -->
+            <div style="display: flex; align-items: center; justify-content: space-between; padding: 14px; background: rgba(0,0,0,0.2); border-radius: 8px;">
+              <div>
+                <div style="font-weight: 600;">🔀 Savollarning o'rnini doimiy aralashtirish (Random Shuffle)</div>
+                <div style="font-size: 12px; color: var(--text-muted);">
+                  Har bir test boshlanganida savollar tartibi tasodifiy o'zgarib turadi
+                </div>
+              </div>
+              <label class="switch">
+                <input type="checkbox" id="settingShuffleQuestionsToggle" checked>
+                <span class="slider"></span>
+              </label>
+            </div>
+
+            <!-- 4. Shuffle Options Toggle -->
+            <div style="display: flex; align-items: center; justify-content: space-between; padding: 14px; background: rgba(0,0,0,0.2); border-radius: 8px;">
+              <div>
+                <div style="font-weight: 600;">🔤 Javob variantlari (A, B, C, D) o'rnini doimiy aralashtirish</div>
+                <div style="font-size: 12px; color: var(--text-muted);">
+                  Har bir savoldagi to'g'ri va noto'g'ri javob variantlari o'rni har gal tasodifiy almashadi
+                </div>
+              </div>
+              <label class="switch">
+                <input type="checkbox" id="settingShuffleOptionsToggle" checked>
+                <span class="slider"></span>
+              </label>
+            </div>
+
+            <!-- 5. Anti-cheat / Anti-copy & Anti-screenshot Toggle -->
+            <div style="display: flex; align-items: center; justify-content: space-between; padding: 14px; background: rgba(0,0,0,0.2); border-radius: 8px;">
+              <div>
+                <div style="font-weight: 600;">🛡️ Ko'chirish va skrinshot qilishni taqiqlash (Anti-Cheat)</div>
+                <div style="font-size: 12px; color: var(--text-muted);">
+                  Veb ilovada matndan nusxa olish, PrintScreen va boshqa oynaga o'tishni taqiqlash
+                </div>
+              </div>
+              <label class="switch">
+                <input type="checkbox" id="settingAntiCheatToggle" checked>
+                <span class="slider"></span>
+              </label>
+            </div>
+
           </div>
 
-          <button class="btn btn-primary" onclick="saveSettings()">💾 Sozlamalarni saqlash</button>
+          <button class="btn btn-primary" onclick="saveSettings()">💾 Barcha sozlamalarni saqlash</button>
         </div>
       </section>
 

@@ -88,6 +88,11 @@ class SettingsUpdateRequest(BaseModel):
     questions_per_test: Optional[int] = None
     duration_minutes: Optional[int] = None
     pass_percentage: Optional[int] = None
+    shuffle_questions: Optional[bool] = None
+    shuffle_options: Optional[bool] = None
+    anti_cheat_enabled: Optional[bool] = None
+    category_filter_enabled: Optional[bool] = None
+    max_questions_limit: Optional[int] = None
 
 class UpdateCategoryRequest(BaseModel):
     category: str
@@ -153,7 +158,12 @@ async def check_user_access(data: AuthCheckRequest):
             "questions_per_test": q_count,
             "duration_minutes": duration_mins,
             "total_available_questions": total_q,
-            "pass_percentage": int(db.get_setting("pass_percentage", "60"))
+            "pass_percentage": int(db.get_setting("pass_percentage", "60")),
+            "shuffle_questions": db.get_setting("shuffle_questions", "true").lower() == "true",
+            "shuffle_options": db.get_setting("shuffle_options", "true").lower() == "true",
+            "anti_cheat_enabled": db.get_setting("anti_cheat_enabled", "true").lower() == "true",
+            "category_filter_enabled": db.get_setting("category_filter_enabled", "true").lower() == "true",
+            "max_questions_limit": int(db.get_setting("max_questions_limit", "500"))
         }
     }
 
@@ -469,5 +479,16 @@ async def api_admin_update_settings(data: SettingsUpdateRequest, x_admin_key: Op
         db.set_setting("duration_minutes", str(data.duration_minutes))
     if data.pass_percentage is not None:
         db.set_setting("pass_percentage", str(data.pass_percentage))
+    if data.shuffle_questions is not None:
+        db.set_setting("shuffle_questions", "true" if data.shuffle_questions else "false")
+    if data.shuffle_options is not None:
+        db.set_setting("shuffle_options", "true" if data.shuffle_options else "false")
+    if data.anti_cheat_enabled is not None:
+        db.set_setting("anti_cheat_enabled", "true" if data.anti_cheat_enabled else "false")
+    if data.category_filter_enabled is not None:
+        db.set_setting("category_filter_enabled", "true" if data.category_filter_enabled else "false")
+    if data.max_questions_limit is not None:
+        capped_max = min(max(1, data.max_questions_limit), 500)
+        db.set_setting("max_questions_limit", str(capped_max))
 
     return {"success": True, "settings": db.get_all_settings()}

@@ -93,12 +93,14 @@ def init_db():
         "duration_minutes": str(DEFAULT_TEST_DURATION_MINUTES),
         "pass_percentage": "60",
         "shuffle_questions": "true",
-        "shuffle_options": "true"
+        "shuffle_options": "true",
+        "anti_cheat_enabled": "true",
+        "category_filter_enabled": "true",
+        "max_questions_limit": "500"
     }
 
     for k, v in defaults.items():
         cursor.execute("INSERT OR IGNORE INTO settings (key, value) VALUES (?, ?)", (k, v))
-    cursor.execute("UPDATE settings SET value = 'true' WHERE key = 'shuffle_options'")
 
     # Add admin IDs to whitelist automatically
     for admin_id in ADMIN_IDS:
@@ -333,26 +335,32 @@ def get_test_questions(count: int = 50, shuffle: bool = True, category: Optional
 def create_test_session(telegram_id: int, category: Optional[str] = None, count: Optional[int] = None) -> Dict[str, Any]:
     """
     Initializes a test session with:
-    - Selected category/group filter
-    - Specified question count limit (max 500)
-    - Randomized question order (savollar o'rni almashadi)
-    - Randomized options order (A, B, C, D variantlar o'rni doimiy almashadi)
+    - Selected category/group filter (controlled by category_filter_enabled setting)
+    - Specified question count limit (capped by max_questions_limit, max 500)
+    - Randomized question order (controlled by shuffle_questions setting)
+    - Randomized options order (controlled by shuffle_options setting)
     """
+    max_limit = int(get_setting("max_questions_limit", "500"))
+    max_limit = min(max(1, max_limit), 500)
+
     default_count = int(get_setting("questions_per_test", str(DEFAULT_TEST_QUESTIONS_COUNT)))
     target_count = count if (count and count > 0) else default_count
-    # Strict maximum 500 questions
-    target_count = min(max(1, target_count), 500)
+    target_count = min(max(1, target_count), max_limit)
 
     base_duration = int(get_setting("duration_minutes", str(DEFAULT_TEST_DURATION_MINUTES)))
     duration_minutes = target_count if (count and count > 0) else base_duration
     
+    shuffle_q_enabled = get_setting("shuffle_questions", "true").lower() == "true"
+    order_clause = "ORDER BY RANDOM()" if shuffle_q_enabled else "ORDER BY id ASC"
+
     conn = get_connection()
     cursor = conn.cursor()
 
-    if category and category.lower() not in ["barchasi", "all"]:
-        cursor.execute("SELECT * FROM questions WHERE category = ? ORDER BY RANDOM() LIMIT ?", (category, target_count))
+    cat_filter_enabled = get_setting("category_filter_enabled", "true").lower() == "true"
+    if cat_filter_enabled and category and category.lower() not in ["barchasi", "all"]:
+        cursor.execute(f"SELECT * FROM questions WHERE category = ? {order_clause} LIMIT ?", (category, target_count))
     else:
-        cursor.execute("SELECT * FROM questions ORDER BY RANDOM() LIMIT ?", (target_count,))
+        cursor.execute(f"SELECT * FROM questions {order_clause} LIMIT ?", (target_count,))
 
     raw_questions = [dict(r) for r in cursor.fetchall()]
     conn.close()

@@ -79,9 +79,24 @@ async function loadOverviewData() {
     // Populate settings
     if (settings) {
       document.getElementById('settingQuestionCount').value = settings.questions_per_test || 50;
+      if (document.getElementById('settingMaxQuestionsLimit')) {
+        document.getElementById('settingMaxQuestionsLimit').value = settings.max_questions_limit || 500;
+      }
       document.getElementById('settingDuration').value = settings.duration_minutes || 50;
       document.getElementById('settingPassPercent').value = settings.pass_percentage || 60;
       document.getElementById('settingWhitelistToggle').checked = (settings.whitelist_enabled === 'true');
+      
+      const catToggle = document.getElementById('settingCategoryFilterToggle');
+      if (catToggle) catToggle.checked = (settings.category_filter_enabled !== 'false');
+
+      const shufQToggle = document.getElementById('settingShuffleQuestionsToggle');
+      if (shufQToggle) shufQToggle.checked = (settings.shuffle_questions !== 'false');
+
+      const shufOToggle = document.getElementById('settingShuffleOptionsToggle');
+      if (shufOToggle) shufOToggle.checked = (settings.shuffle_options !== 'false');
+
+      const cheatToggle = document.getElementById('settingAntiCheatToggle');
+      if (cheatToggle) cheatToggle.checked = (settings.anti_cheat_enabled !== 'false');
     }
   } catch (err) {
     console.error("Overview load error:", err);
@@ -90,9 +105,14 @@ async function loadOverviewData() {
 
 async function saveSettings() {
   const questions_per_test = parseInt(document.getElementById('settingQuestionCount').value, 10);
+  const max_questions_limit = parseInt(document.getElementById('settingMaxQuestionsLimit')?.value || '500', 10);
   const duration_minutes = parseInt(document.getElementById('settingDuration').value, 10);
   const pass_percentage = parseInt(document.getElementById('settingPassPercent').value, 10);
   const whitelist_enabled = document.getElementById('settingWhitelistToggle').checked;
+  const category_filter_enabled = document.getElementById('settingCategoryFilterToggle')?.checked ?? true;
+  const shuffle_questions = document.getElementById('settingShuffleQuestionsToggle')?.checked ?? true;
+  const shuffle_options = document.getElementById('settingShuffleOptionsToggle')?.checked ?? true;
+  const anti_cheat_enabled = document.getElementById('settingAntiCheatToggle')?.checked ?? true;
 
   try {
     const res = await fetch('/api/admin/settings', {
@@ -100,14 +120,19 @@ async function saveSettings() {
       headers: getHeaders(),
       body: JSON.stringify({
         questions_per_test,
+        max_questions_limit,
         duration_minutes,
         pass_percentage,
-        whitelist_enabled
+        whitelist_enabled,
+        category_filter_enabled,
+        shuffle_questions,
+        shuffle_options,
+        anti_cheat_enabled
       })
     });
 
     if (res.ok) {
-      alert("✅ Sozlamalar muvaffaqiyatli saqlandi!");
+      alert("✅ Barcha sozlamalar muvaffaqiyatli saqlandi!");
     } else {
       alert("❌ Xatolik yuz berdi!");
     }

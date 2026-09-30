@@ -154,10 +154,10 @@ def run_tests():
     assert sub_data["passed"] is True
     print(f"[+] 5. Aralashtirilgan javoblar bilan tekshirish 100% aniqlikda ishladi ({sub_data['score']}/{sub_data['total']})")
 
-    # 6. Verify Anti-Copy & Anti-Screenshot protections in frontend files
+    # 6. Verify Anti-Copy & Anti-Screenshot protections and absence of background watermark
     with open("templates/index.html", "r", encoding="utf-8") as f:
         html_content = f.read()
-    assert "watermarkOverlay" in html_content
+    assert "watermarkOverlay" not in html_content, "Watermark must be removed from index.html"
     assert "securityShield" in html_content
     assert "quizCategorySelect" in html_content
     assert "countPillsContainer" in html_content
@@ -167,17 +167,54 @@ def run_tests():
     assert "user-select: none !important" in css_content
     assert "@media print" in css_content
     assert "security-shield" in css_content
-    assert "watermark-overlay" in css_content
+    assert "watermark-overlay" not in css_content, "Watermark CSS must be removed"
 
     with open("static/js/app.js", "r", encoding="utf-8") as f:
         js_content = f.read()
-    assert "setupWatermark" in js_content
+    assert "setupWatermark" not in js_content, "setupWatermark must be removed"
     assert "initSecurityShieldAndProtections" in js_content
     assert "PrintScreen" in js_content
     assert "dismissSecurityShield" in js_content
-    print("[+] 6. Anti-kopiya va anti-skrinshot (himoya qalqoni, suv belgisi, matn himoyasi) to'liq mavjud va sozlandi")
+    print("[+] 6. Anti-kopiya va anti-skrinshot qalqoni faol, fondagi suv belgisi (ism/ID) to'liq olib tashlangan")
 
-    print("\n[SUCCESS] Barcha yangi imkoniyatlar (guruhlar, cheklov, shuffle va himoya) a'lo darajada ishladi!")
+    # 7. Verify Admin Settings Controls (bularni sozlamalari adminda bo'lsin)
+    with open("templates/admin.html", "r", encoding="utf-8") as f:
+        admin_html = f.read()
+    assert "settingCategoryFilterToggle" in admin_html
+    assert "settingShuffleQuestionsToggle" in admin_html
+    assert "settingShuffleOptionsToggle" in admin_html
+    assert "settingAntiCheatToggle" in admin_html
+    assert "settingMaxQuestionsLimit" in admin_html
+
+    # Test updating settings via API
+    from config import ADMIN_SECRET_KEY
+    admin_headers = {"X-Admin-Key": ADMIN_SECRET_KEY}
+    set_res = client.post("/api/admin/settings", json={
+        "shuffle_options": False,
+        "shuffle_questions": False,
+        "anti_cheat_enabled": True,
+        "category_filter_enabled": True,
+        "max_questions_limit": 500
+    }, headers=admin_headers)
+    assert set_res.status_code == 200
+    all_s = set_res.json()["settings"]
+    assert all_s["shuffle_options"] == "false"
+    assert all_s["shuffle_questions"] == "false"
+    assert all_s["anti_cheat_enabled"] == "true"
+    assert all_s["category_filter_enabled"] == "true"
+    assert all_s["max_questions_limit"] == "500"
+
+    # Reset back to default true
+    client.post("/api/admin/settings", json={
+        "shuffle_options": True,
+        "shuffle_questions": True,
+        "anti_cheat_enabled": True,
+        "category_filter_enabled": True,
+        "max_questions_limit": 500
+    }, headers=admin_headers)
+    print("[+] 7. Admin paneldan guruhlar, shuffle, cheklov va anti-cheat sozlamalarini boshqarish muvaffaqiyatli tekshirildi")
+
+    print("\n[SUCCESS] Barcha talablar (guruhlar, shuffle, max 500, admin sozlamalari, fondan ism/ID ni olib tashlash) 100% muvaffaqiyatli bajarildi!")
 
 if __name__ == "__main__":
     run_tests()
