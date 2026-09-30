@@ -24,6 +24,10 @@ const state = {
     duration_minutes: 50,
     pass_percentage: 60
   },
+  selectedCategory: 'Barchasi',
+  selectedCount: 50,
+  sessionId: null,
+  categories: [],
   questions: [],
   currentIndex: 0,
   answers: {},     // { questionId: 'A' | 'B' | 'C' | 'D' }
@@ -61,6 +65,7 @@ function showToast(message, duration = 3000) {
 
 // --- INITIALIZATION ---
 document.addEventListener('DOMContentLoaded', () => {
+  initSecurityShieldAndProtections();
   extractUserData();
   checkUserAuth();
 });
@@ -129,6 +134,8 @@ async function checkUserAuth() {
     updateHeaderUI();
 
     if (state.isAllowed) {
+      setupWatermark();
+      await loadCategories();
       renderWelcomeScreen();
       switchView('welcomeView');
     } else {
@@ -174,11 +181,163 @@ function copyTelegramId() {
   });
 }
 
+// --- CATEGORY & QUESTION COUNT MANAGEMENT ---
+async function loadCategories() {
+  try {
+    const res = await fetch(`/api/quiz/categories?telegram_id=${state.user.id}`);
+    if (!res.ok) return;
+    const data = await res.json();
+    state.categories = data.categories || [];
+    const totalQ = data.total_questions || 0;
+
+    const select = document.getElementById('quizCategorySelect');
+    if (!select) return;
+
+    select.innerHTML = '';
+    const allOpt = document.createElement('option');
+    allOpt.value = 'Barchasi';
+    allOpt.innerText = `Barchasi (Aralash) - ${totalQ} ta savol`;
+    select.appendChild(allOpt);
+
+    state.categories.forEach(c => {
+      const opt = document.createElement('option');
+      opt.value = c.name;
+      opt.innerText = `${c.name} - ${c.count} ta savol`;
+      select.appendChild(opt);
+    });
+
+    state.selectedCategory = 'Barchasi';
+    adjustCountPillsForCategory();
+  } catch (e) {
+    console.error("Failed to load categories:", e);
+  }
+}
+
+function onCategoryChange() {
+  const select = document.getElementById('quizCategorySelect');
+  if (!select) return;
+  state.selectedCategory = select.value;
+  adjustCountPillsForCategory();
+}
+
+function getMaxAvailableForCategory() {
+  let maxAvail = 0;
+  if (state.selectedCategory === 'Barchasi') {
+    maxAvail = state.categories.reduce((acc, c) => acc + c.count, 0);
+  } else {
+    const cat = state.categories.find(c => c.name === state.selectedCategory);
+    maxAvail = cat ? cat.count : 0;
+  }
+  return Math.min(maxAvail || 500, 500);
+}
+
+function adjustCountPillsForCategory() {
+  const maxAvail = getMaxAvailableForCategory();
+
+  const hintEl = document.getElementById('maxAvailableCountHint');
+  if (hintEl) {
+    hintEl.innerText = `Mavjud: ${maxAvail} ta (max 500)`;
+  }
+
+  const customInput = document.getElementById('customCountInput');
+  if (customInput) {
+    customInput.max = maxAvail;
+  }
+
+  const pills = document.querySelectorAll('.count-pill');
+  let activePillFound = false;
+  let highestPill = 10;
+
+  pills.forEach(pill => {
+    const count = parseInt(pill.getAttribute('data-count'), 10);
+    if (count <= maxAvail || maxAvail === 0) {
+      pill.style.display = 'inline-block';
+      highestPill = Math.max(highestPill, count);
+      if (count === state.selectedCount) {
+        pill.classList.add('active');
+        activePillFound = true;
+      } else {
+        pill.classList.remove('active');
+      }
+    } else {
+      pill.style.display = 'none';
+      pill.classList.remove('active');
+    }
+  });
+
+  if (!activePillFound) {
+    const target = Math.min(state.selectedCount, maxAvail);
+    selectQuestionCount(target > 0 ? target : highestPill, true);
+  } else {
+    updateWelcomeStats();
+  }
+}
+
+function selectQuestionCount(num, syncCustomInput = true) {
+  triggerHaptic('light');
+  let count = parseInt(num, 10);
+  if (isNaN(count) || count < 1) count = 10;
+  
+  // Cap at 500 and available questions
+  const maxAvail = getMaxAvailableForCategory();
+  if (maxAvail > 0) {
+    count = Math.min(count, maxAvail);
+  }
+  count = Math.min(Math.max(1, count), 500);
+
+  state.selectedCount = count;
+
+  const pills = document.querySelectorAll('.count-pill');
+  let matchedPill = false;
+  pills.forEach(p => {
+    const c = parseInt(p.getAttribute('data-count'), 10);
+    if (c === count) {
+      p.classList.add('active');
+      matchedPill = true;
+    } else {
+      p.classList.remove('active');
+    }
+  });
+
+  const customInput = document.getElementById('customCountInput');
+  if (customInput && syncCustomInput) {
+    customInput.value = matchedPill ? '' : count;
+  }
+
+  updateWelcomeStats();
+}
+
+function onCustomCountInput(val) {
+  let count = parseInt(val, 10);
+  if (isNaN(count) || count < 1) return;
+  if (count > 500) {
+    count = 500;
+    const input = document.getElementById('customCountInput');
+    if (input) input.value = 500;
+  }
+  const maxAvail = getMaxAvailableForCategory();
+  if (maxAvail > 0 && count > maxAvail) {
+    count = maxAvail;
+    const input = document.getElementById('customCountInput');
+    if (input) input.value = maxAvail;
+    showToast(`Ushbu fanda jami ${maxAvail} ta savol bor`);
+  }
+  selectQuestionCount(count, false);
+}
+
+function updateWelcomeStats() {
+  const countEl = document.getElementById('welcomeQuestionCount');
+  const durationEl = document.getElementById('welcomeDuration');
+  const passEl = document.getElementById('welcomePassScore');
+
+  if (countEl) countEl.innerText = `${state.selectedCount} ta`;
+  if (durationEl) durationEl.innerText = `${state.selectedCount} daqiqa`;
+  if (passEl) passEl.innerText = `${state.settings.pass_percentage}%`;
+}
+
 function renderWelcomeScreen() {
   document.getElementById('welcomeTitle').innerText = `Assalomu alaykum, ${state.user.name}!`;
-  document.getElementById('welcomeQuestionCount').innerText = `${state.settings.questions_per_test} ta`;
-  document.getElementById('welcomeDuration').innerText = `${state.settings.duration_minutes} daqiqa`;
-  document.getElementById('welcomePassScore').innerText = `${state.settings.pass_percentage}%`;
+  updateWelcomeStats();
 }
 
 // --- SWITCH SCREENS HELPER ---
@@ -208,7 +367,16 @@ async function startQuiz() {
   document.getElementById('loadingStatusText').innerText = "Savollar tayyorlanmoqda...";
 
   try {
-    const res = await fetch(`/api/quiz/questions?telegram_id=${state.user.id}`);
+    const res = await fetch('/api/quiz/start', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        telegram_id: state.user.id,
+        category: state.selectedCategory,
+        count: state.selectedCount
+      })
+    });
+
     if (!res.ok) {
       const err = await res.json();
       throw new Error(err.detail || "Savollarni yuklab bo'lmadi");
@@ -216,11 +384,12 @@ async function startQuiz() {
 
     const data = await res.json();
     if (!data.questions || data.questions.length === 0) {
-      alert("Hozircha tizimda savollar mavjud emas. Administratorga murojaat qiling.");
+      alert("Tanlangan fan yoki guruh bo'yicha savollar mavjud emas.");
       switchView('welcomeView');
       return;
     }
 
+    state.sessionId = data.session_id || null;
     state.questions = data.questions;
     state.currentIndex = 0;
     state.answers = {};
@@ -228,8 +397,8 @@ async function startQuiz() {
     state.isFinished = false;
     state.timeSpentSeconds = 0;
     
-    // Set timer from server response or state settings
-    const durationMinutes = data.duration_minutes || state.settings.duration_minutes || 50;
+    // Set timer from server response or selected count
+    const durationMinutes = data.duration_minutes || state.selectedCount || 50;
     state.timeRemainingSeconds = durationMinutes * 60;
 
     startTimer();
@@ -479,7 +648,8 @@ async function submitQuizFinal() {
         full_name: state.user.name,
         username: state.user.username,
         time_spent_seconds: state.timeSpentSeconds,
-        answers: state.answers
+        answers: state.answers,
+        session_id: state.sessionId
       })
     });
 
@@ -752,3 +922,145 @@ function escapeHtml(str) {
     .replace(/"/g, "&quot;")
     .replace(/'/g, "&#039;");
 }
+
+// --- ANTI-COPY & ANTI-SCREENSHOT SECURITY ---
+function setupWatermark() {
+  const overlay = document.getElementById('watermarkOverlay');
+  if (!overlay) return;
+  overlay.innerHTML = '';
+  const dateStr = new Date().toLocaleDateString('uz-UZ');
+  const text = `${state.user.name} • ID: ${state.user.id} • ${dateStr}`;
+  for (let i = 0; i < 32; i++) {
+    const cell = document.createElement('div');
+    cell.className = 'watermark-cell';
+    cell.innerText = text;
+    overlay.appendChild(cell);
+  }
+}
+
+function triggerSecurityShield(msg) {
+  const shield = document.getElementById('securityShield');
+  if (shield) {
+    if (msg) {
+      const p = shield.querySelector('p');
+      if (p) p.innerText = msg;
+    }
+    shield.classList.add('active');
+    triggerHaptic('error');
+  }
+}
+
+function dismissSecurityShield() {
+  const shield = document.getElementById('securityShield');
+  if (shield) {
+    shield.classList.remove('active');
+  }
+}
+
+function isQuizInProgress() {
+  const quizView = document.getElementById('quizView');
+  return quizView && quizView.style.display === 'flex' && !state.isFinished;
+}
+
+function initSecurityShieldAndProtections() {
+  // 1. Disable Right Click (Context Menu)
+  document.addEventListener('contextmenu', (e) => {
+    e.preventDefault();
+    showToast("⚠️ O'ng tugma bosish taqiqlangan!");
+    return false;
+  }, { capture: true });
+
+  // 2. Disable Copy, Cut, Paste, Drag, Select
+  ['copy', 'cut', 'paste', 'selectstart', 'dragstart'].forEach(evt => {
+    document.addEventListener(evt, (e) => {
+      // Allow copy only in denied screen copy button
+      if (e.target && e.target.closest('#deniedView')) return;
+      e.preventDefault();
+      if (evt === 'copy' || evt === 'cut') {
+        showToast("⚠️ Testdan nusxa olish taqiqlangan!");
+        triggerHaptic('warning');
+      }
+      return false;
+    }, { capture: true });
+  });
+
+  // 3. Prevent Devtools, Print and Save hotkeys
+  document.addEventListener('keydown', (e) => {
+    const isDevTools = e.key === 'F12' || (e.ctrlKey && e.shiftKey && ['I', 'J', 'C', 'i', 'j', 'c'].includes(e.key));
+    const isSaveOrPrint = e.ctrlKey && ['s', 'S', 'p', 'P', 'u', 'U'].includes(e.key);
+    const isCopyOrCut = e.ctrlKey && ['c', 'C', 'x', 'X', 'a', 'A'].includes(e.key);
+
+    if (isDevTools || isSaveOrPrint) {
+      e.preventDefault();
+      e.stopPropagation();
+      showToast("⚠️ Ushbu amal taqiqlangan!");
+      return false;
+    }
+
+    // Block Ctrl+C / Ctrl+A during quiz
+    if (isCopyOrCut && isQuizInProgress()) {
+      e.preventDefault();
+      e.stopPropagation();
+      showToast("⚠️ Test davomida nusxa olish taqiqlangan!");
+      return false;
+    }
+
+    // PrintScreen detection
+    if (e.key === 'PrintScreen' || e.keyCode === 44) {
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        navigator.clipboard.writeText('');
+      }
+      triggerSecurityShield("Ekranni rasmga olish (PrintScreen) taqiqlangan!");
+    }
+  }, { capture: true });
+
+  // 4. Blur and visibilitychange detection (Anti-tab-switch / anti-screenshot tool switch)
+  window.addEventListener('blur', () => {
+    if (isQuizInProgress()) {
+      triggerSecurityShield("Diqqat! Test davomida boshqa oynaga o'tish yoki rasmga olish taqiqlangan!");
+    }
+  });
+
+  document.addEventListener('visibilitychange', () => {
+    if (document.hidden && isQuizInProgress()) {
+      triggerSecurityShield("Diqqat! Test oynasidan chiqish taqiqlangan!");
+    }
+  });
+
+  // 5. Telegram WebApp safety hooks
+  if (tg) {
+    try {
+      if (typeof tg.enableClosingConfirmation === 'function') {
+        tg.enableClosingConfirmation();
+      }
+      if (typeof tg.disableVerticalSwipes === 'function') {
+        tg.disableVerticalSwipes();
+      }
+    } catch (e) {
+      console.warn("Telegram WebApp security flags not supported in this client");
+    }
+  }
+}
+
+// Global window assignments for onclick handlers
+window.dismissSecurityShield = dismissSecurityShield;
+window.onCategoryChange = onCategoryChange;
+window.selectQuestionCount = selectQuestionCount;
+window.startQuiz = startQuiz;
+window.recheckAccess = recheckAccess;
+window.copyTelegramId = copyTelegramId;
+window.toggleFlagCurrentQuestion = toggleFlagCurrentQuestion;
+window.goToPrevQuestion = goToPrevQuestion;
+window.goToNextQuestion = goToNextQuestion;
+window.openPaletteModal = openPaletteModal;
+window.closePaletteModal = closePaletteModal;
+window.promptFinishQuiz = promptFinishQuiz;
+window.closeConfirmModal = closeConfirmModal;
+window.submitQuizFinal = submitQuizFinal;
+window.startReviewMode = startReviewMode;
+window.restartApp = restartApp;
+window.openHistoryModal = openHistoryModal;
+window.closeHistoryModal = closeHistoryModal;
+window.switchUserModalTab = switchUserModalTab;
+window.onCustomCountInput = onCustomCountInput;
+

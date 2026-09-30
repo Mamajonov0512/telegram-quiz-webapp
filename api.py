@@ -59,10 +59,16 @@ class AuthCheckRequest(BaseModel):
 
 class SubmitQuizRequest(BaseModel):
     telegram_id: int
+    session_id: Optional[str] = None
     full_name: Optional[str] = ""
     username: Optional[str] = ""
     time_spent_seconds: int
     answers: Dict[str, str]  # question_id -> "A"|"B"|"C"|"D"
+
+class StartQuizRequest(BaseModel):
+    telegram_id: int
+    category: Optional[str] = "Barchasi"
+    count: Optional[int] = None
 
 class AddUserRequest(BaseModel):
     telegram_id: int
@@ -151,48 +157,67 @@ async def check_user_access(data: AuthCheckRequest):
         }
     }
 
+@app.get("/api/quiz/categories")
+async def get_quiz_categories(telegram_id: Optional[int] = None):
+    cats = db.get_categories()
+    total_q = db.get_questions_count()
+    default_count = int(db.get_setting("questions_per_test", str(DEFAULT_TEST_QUESTIONS_COUNT)))
+    return {
+        "categories": cats,
+        "total_questions": total_q,
+        "default_count": default_count
+    }
+
+@app.post("/api/quiz/start")
+async def start_quiz_session(data: StartQuizRequest):
+    if not db.is_user_allowed(data.telegram_id):
+        raise HTTPException(status_code=403, detail="Sizga ruxsat berilmagan.")
+    
+    count = data.count
+    if count is not None:
+        count = min(max(1, count), 500)
+
+    session = db.create_test_session(
+        telegram_id=data.telegram_id,
+        category=data.category,
+        count=count
+    )
+    if "error" in session and session.get("error"):
+        raise HTTPException(status_code=400, detail=session["error"])
+    return session
+
 @app.get("/api/quiz/questions")
-async def get_quiz_questions(telegram_id: Optional[int] = None):
+async def get_quiz_questions(telegram_id: Optional[int] = None, category: Optional[str] = None, count: Optional[int] = None):
     if not telegram_id or not db.is_user_allowed(telegram_id):
         raise HTTPException(status_code=403, detail="Sizga ruxsat berilmagan.")
 
-    total_avail = db.get_questions_count()
-    if total_avail == 0:
-        return {"questions": [], "count": 0, "duration_minutes": 0}
+    if count is not None:
+        count = min(max(1, count), 500)
 
-    q_count = int(db.get_setting("questions_per_test", str(DEFAULT_TEST_QUESTIONS_COUNT)))
-    duration = int(db.get_setting("duration_minutes", str(DEFAULT_TEST_DURATION_MINUTES)))
-    shuffle = db.get_setting("shuffle_questions", "true").lower() == "true"
-
-    raw_questions = db.get_test_questions(count=q_count, shuffle=shuffle)
-
-    # Sanitize questions: DO NOT expose correct_option or explanation to avoid client-side cheating
-    sanitized = []
-    for idx, q in enumerate(raw_questions, start=1):
-        sanitized.append({
-            "id": q["id"],
-            "index": idx,
-            "question": q["question_text"],
-            "options": {
-                "A": q["option_a"],
-                "B": q["option_b"],
-                "C": q["option_c"],
-                "D": q["option_d"]
-            },
-            "category": q.get("category", "Umumiy")
-        })
-
-    return {
-        "questions": sanitized,
-        "count": len(sanitized),
-        "duration_minutes": duration
-    }
+    # Using session generator for randomized questions and options
+    session = db.create_test_session(telegram_id=telegram_id, category=category, count=count)
+    if "error" in session and session.get("error"):
+        raise HTTPException(status_code=400, detail=session["error"])
+    return session
 
 @app.post("/api/quiz/submit")
 async def submit_quiz(data: SubmitQuizRequest):
     if not db.is_user_allowed(data.telegram_id):
         raise HTTPException(status_code=403, detail="Sizga ruxsat berilmagan.")
 
+    # 1. If session_id is provided, evaluate against shuffled options session
+    if data.session_id:
+        result = db.evaluate_session_submission(
+            session_id=data.session_id,
+            submitted_answers=data.answers,
+            time_spent_seconds=data.time_spent_seconds,
+            full_name=data.full_name or "",
+            username=data.username or ""
+        )
+        if result:
+            return result
+
+    # 2. Fallback legacy evaluation
     submitted_answers = data.answers
     total_questions = len(submitted_answers)
     
@@ -438,7 +463,8 @@ async def api_admin_update_settings(data: SettingsUpdateRequest, x_admin_key: Op
     if data.whitelist_enabled is not None:
         db.set_setting("whitelist_enabled", "true" if data.whitelist_enabled else "false")
     if data.questions_per_test is not None:
-        db.set_setting("questions_per_test", str(data.questions_per_test))
+        q_count = min(max(1, data.questions_per_test), 500)
+        db.set_setting("questions_per_test", str(q_count))
     if data.duration_minutes is not None:
         db.set_setting("duration_minutes", str(data.duration_minutes))
     if data.pass_percentage is not None:

@@ -1,6 +1,8 @@
 import sqlite3
 import json
 import logging
+import uuid
+import random
 from datetime import datetime
 from typing import List, Dict, Any, Optional
 from config import DB_PATH, ADMIN_IDS, DEFAULT_TEST_QUESTIONS_COUNT, DEFAULT_TEST_DURATION_MINUTES
@@ -70,6 +72,20 @@ def init_db():
     )
     """)
 
+    # 5. Test Sessions table (tracks randomized questions and shuffled options per user)
+    cursor.execute("""
+    CREATE TABLE IF NOT EXISTS test_sessions (
+        session_id TEXT PRIMARY KEY,
+        telegram_id INTEGER NOT NULL,
+        category TEXT DEFAULT 'Barchasi',
+        questions_count INTEGER NOT NULL,
+        duration_minutes INTEGER NOT NULL,
+        session_data TEXT NOT NULL,
+        started_at TEXT DEFAULT CURRENT_TIMESTAMP,
+        is_submitted INTEGER DEFAULT 0
+    )
+    """)
+
     # Set default settings if not exists
     defaults = {
         "whitelist_enabled": "true",  # Only allowed IDs can test
@@ -77,11 +93,12 @@ def init_db():
         "duration_minutes": str(DEFAULT_TEST_DURATION_MINUTES),
         "pass_percentage": "60",
         "shuffle_questions": "true",
-        "shuffle_options": "false"
+        "shuffle_options": "true"
     }
 
     for k, v in defaults.items():
         cursor.execute("INSERT OR IGNORE INTO settings (key, value) VALUES (?, ?)", (k, v))
+    cursor.execute("UPDATE settings SET value = 'true' WHERE key = 'shuffle_options'")
 
     # Add admin IDs to whitelist automatically
     for admin_id in ADMIN_IDS:
@@ -284,16 +301,212 @@ def update_all_questions_category(new_category: str, old_category: Optional[str]
     conn.close()
     return updated_rows
 
-def get_test_questions(count: int = 50, shuffle: bool = True) -> List[Dict[str, Any]]:
+def get_categories() -> List[Dict[str, Any]]:
+    """
+    Returns list of all categories/groups with question count for each.
+    """
     conn = get_connection()
     cursor = conn.cursor()
-    if shuffle:
-        cursor.execute("SELECT * FROM questions ORDER BY RANDOM() LIMIT ?", (count,))
+    cursor.execute("""
+    SELECT category, COUNT(*) as count 
+    FROM questions 
+    GROUP BY category 
+    ORDER BY count DESC, category ASC
+    """)
+    rows = cursor.fetchall()
+    conn.close()
+    return [dict(r) for r in rows]
+
+def get_test_questions(count: int = 50, shuffle: bool = True, category: Optional[str] = None) -> List[Dict[str, Any]]:
+    conn = get_connection()
+    cursor = conn.cursor()
+    count = min(max(1, count), 500)
+    order_clause = "ORDER BY RANDOM()" if shuffle else "ORDER BY id ASC"
+    if category and category.lower() not in ["barchasi", "all", "umumiy"]:
+        cursor.execute(f"SELECT * FROM questions WHERE category = ? {order_clause} LIMIT ?", (category, count))
     else:
-        cursor.execute("SELECT * FROM questions ORDER BY id ASC LIMIT ?", (count,))
+        cursor.execute(f"SELECT * FROM questions {order_clause} LIMIT ?", (count,))
     rows = cursor.fetchall()
     conn.close()
     return [dict(row) for row in rows]
+
+def create_test_session(telegram_id: int, category: Optional[str] = None, count: Optional[int] = None) -> Dict[str, Any]:
+    """
+    Initializes a test session with:
+    - Selected category/group filter
+    - Specified question count limit (max 500)
+    - Randomized question order (savollar o'rni almashadi)
+    - Randomized options order (A, B, C, D variantlar o'rni doimiy almashadi)
+    """
+    default_count = int(get_setting("questions_per_test", str(DEFAULT_TEST_QUESTIONS_COUNT)))
+    target_count = count if (count and count > 0) else default_count
+    # Strict maximum 500 questions
+    target_count = min(max(1, target_count), 500)
+
+    base_duration = int(get_setting("duration_minutes", str(DEFAULT_TEST_DURATION_MINUTES)))
+    duration_minutes = target_count if (count and count > 0) else base_duration
+    
+    conn = get_connection()
+    cursor = conn.cursor()
+
+    if category and category.lower() not in ["barchasi", "all"]:
+        cursor.execute("SELECT * FROM questions WHERE category = ? ORDER BY RANDOM() LIMIT ?", (category, target_count))
+    else:
+        cursor.execute("SELECT * FROM questions ORDER BY RANDOM() LIMIT ?", (target_count,))
+
+    raw_questions = [dict(r) for r in cursor.fetchall()]
+    conn.close()
+
+    if not raw_questions:
+        return {"error": "Tanlangan guruhda savollar mavjud emas", "questions": [], "count": 0, "session_id": ""}
+
+    shuffle_options_enabled = get_setting("shuffle_options", "true").lower() == "true"
+    
+    session_id = str(uuid.uuid4())
+    client_questions = []
+    session_questions_map = {}
+
+    for idx, q in enumerate(raw_questions, start=1):
+        original_correct = q["correct_option"].upper().strip()
+        
+        # Raw options list
+        raw_options = [
+            ("A", q["option_a"]),
+            ("B", q["option_b"]),
+            ("C", q["option_c"]),
+            ("D", q["option_d"]),
+        ]
+
+        if shuffle_options_enabled:
+            # Shuffle options order randomly
+            random.shuffle(raw_options)
+
+        # Assign new A, B, C, D keys and track where original correct answer landed
+        shuffled_options = {}
+        correct_shown_letter = "A"
+
+        for new_letter, (orig_letter, opt_text) in zip(["A", "B", "C", "D"], raw_options):
+            shuffled_options[new_letter] = opt_text
+            if orig_letter == original_correct:
+                correct_shown_letter = new_letter
+
+        # Save to session map for grading
+        session_questions_map[str(q["id"])] = {
+            "id": q["id"],
+            "question_text": q["question_text"],
+            "category": q.get("category", "Umumiy"),
+            "options": shuffled_options,
+            "correct_shown_letter": correct_shown_letter,
+            "explanation": q.get("explanation", "")
+        }
+
+        # Client-facing question (SAFE: never contains correct answer or explanation)
+        client_questions.append({
+            "id": q["id"],
+            "index": idx,
+            "question": q["question_text"],
+            "options": shuffled_options,
+            "category": q.get("category", "Umumiy")
+        })
+
+    # Save test session
+    conn = get_connection()
+    cursor = conn.cursor()
+    cursor.execute("""
+    INSERT INTO test_sessions 
+    (session_id, telegram_id, category, questions_count, duration_minutes, session_data, started_at, is_submitted)
+    VALUES (?, ?, ?, ?, ?, ?, ?, 0)
+    """, (
+        session_id,
+        telegram_id,
+        category or "Barchasi",
+        len(client_questions),
+        duration_minutes,
+        json.dumps(session_questions_map, ensure_ascii=False),
+        datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    ))
+    conn.commit()
+    conn.close()
+
+    return {
+        "session_id": session_id,
+        "questions": client_questions,
+        "count": len(client_questions),
+        "duration_minutes": duration_minutes,
+        "category": category or "Barchasi"
+    }
+
+def evaluate_session_submission(session_id: str, submitted_answers: Dict[str, str], time_spent_seconds: int,
+                                full_name: str = "", username: str = "") -> Optional[Dict[str, Any]]:
+    """
+    Accurately evaluates submitted answers against the shuffled session options.
+    """
+    conn = get_connection()
+    cursor = conn.cursor()
+    cursor.execute("SELECT * FROM test_sessions WHERE session_id = ?", (session_id,))
+    session_row = cursor.fetchone()
+    
+    if not session_row:
+        conn.close()
+        return None
+
+    telegram_id = session_row["telegram_id"]
+    session_data = json.loads(session_row["session_data"])
+
+    correct_count = 0
+    wrong_count = 0
+    detailed_review = []
+    total_questions = len(session_data)
+
+    for qid_str, q_info in session_data.items():
+        user_ans = (submitted_answers.get(qid_str) or "").upper().strip()
+        correct_ans = q_info["correct_shown_letter"].upper().strip()
+        is_correct = (user_ans == correct_ans and bool(user_ans))
+
+        if is_correct:
+            correct_count += 1
+        else:
+            wrong_count += 1
+
+        detailed_review.append({
+            "id": q_info["id"],
+            "question": q_info["question_text"],
+            "options": q_info["options"],
+            "user_answer": user_ans,
+            "correct_answer": correct_ans,
+            "is_correct": is_correct,
+            "explanation": q_info.get("explanation", ""),
+            "category": q_info.get("category", "")
+        })
+
+    score_percentage = round((correct_count / total_questions) * 100, 1) if total_questions > 0 else 0
+    pass_percentage = int(get_setting("pass_percentage", "60"))
+    passed = score_percentage >= pass_percentage
+
+    # Save to test_results
+    review_json = json.dumps(detailed_review, ensure_ascii=False)
+    cursor.execute("""
+    INSERT INTO test_results 
+    (telegram_id, full_name, username, total_questions, correct_answers, wrong_answers, score_percentage, time_spent_seconds, completed_at, answers_json)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    """, (telegram_id, full_name, username, total_questions, correct_count, wrong_count,
+          score_percentage, time_spent_seconds, datetime.now().strftime("%Y-%m-%d %H:%M:%S"), review_json))
+    
+    # Mark session as submitted
+    cursor.execute("UPDATE test_sessions SET is_submitted = 1 WHERE session_id = ?", (session_id,))
+    conn.commit()
+    conn.close()
+
+    return {
+        "score": correct_count,
+        "total": total_questions,
+        "wrong": wrong_count,
+        "percentage": score_percentage,
+        "passed": passed,
+        "pass_percentage": pass_percentage,
+        "time_spent_seconds": time_spent_seconds,
+        "review": detailed_review
+    }
 
 # --- TEST RESULTS HELPERS ---
 def save_test_result(telegram_id: int, full_name: str, username: str, total_questions: int,

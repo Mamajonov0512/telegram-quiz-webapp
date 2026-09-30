@@ -49,6 +49,11 @@
   box-sizing: border-box;
   -webkit-tap-highlight-color: transparent;
   font-family: var(--font-family);
+  -webkit-touch-callout: none !important; /* Disables mobile copy/callout menu */
+  user-select: none !important;            /* Disables text selection and copying */
+  -webkit-user-select: none !important;
+  -moz-user-select: none !important;
+  -ms-user-select: none !important;
 }
 
 body {
@@ -704,4 +709,132 @@ body {
 
 @keyframes spin {
   to { transform: rotate(360deg); }
+}
+
+/* ===================================================
+   ANTI-SCREENSHOT, ANTI-COPY & SECURITY STYLES
+   =================================================== */
+
+/* Security Shield Overlay (activates on window blur, snipping tool, or screen capture) */
+.security-shield {
+  position: fixed;
+  inset: 0;
+  background: rgba(15, 23, 42, 0.97);
+  backdrop-filter: blur(40px);
+  -webkit-backdrop-filter: blur(40px);
+  z-index: 99999;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  padding: 24px;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.2s ease;
+}
+
+.security-shield.active {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+.security-icon {
+  font-size: 54px;
+  margin-bottom: 16px;
+  animation: pulse 1s infinite alternate;
+}
+
+/* Dynamic User Watermark Overlay (tiled background) */
+.watermark-overlay {
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  z-index: 999;
+  opacity: 0.06;
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  grid-template-rows: repeat(5, 1fr);
+  overflow: hidden;
+  user-select: none;
+}
+
+.watermark-cell {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transform: rotate(-25deg);
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--text-color);
+  white-space: nowrap;
+  letter-spacing: 1px;
+}
+
+/* Category & Question Count Selectors in Welcome Screen */
+.category-select-wrapper {
+  margin-bottom: 16px;
+  text-align: left;
+}
+
+.select-label {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-color);
+  margin-bottom: 6px;
+  display: block;
+}
+
+.custom-select {
+  width: 100%;
+  padding: 12px 14px;
+  background: rgba(255, 255, 255, 0.06);
+  border: 1.5px solid var(--card-border);
+  border-radius: var(--radius-md);
+  color: var(--text-color);
+  font-size: 14px;
+  font-weight: 500;
+  outline: none;
+  cursor: pointer;
+}
+
+.custom-select option {
+  background: var(--secondary-bg-color);
+  color: var(--text-color);
+}
+
+.count-pills {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 6px;
+}
+
+.count-pill {
+  flex: 1 1 calc(33.333% - 8px);
+  min-width: 65px;
+  padding: 8px 4px;
+  text-align: center;
+  font-size: 13px;
+  font-weight: 600;
+  border-radius: var(--radius-sm);
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid var(--card-border);
+  cursor: pointer;
+  transition: all 0.2s ease;
+  user-select: none;
+}
+
+.count-pill.active {
+  background: var(--accent-primary);
+  color: #fff;
+  border-color: var(--accent-primary);
+}
+
+/* Block Print / PDF export */
+@media print {
+  html, body {
+    display: none !important;
+    visibility: hidden !important;
+  }
 }
