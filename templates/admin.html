@@ -407,6 +407,21 @@
           </div>
         </div>
 
+        <!-- Categories / Groups Management Card -->
+        <div class="admin-card">
+          <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; flex-wrap: wrap; gap: 10px;">
+            <div>
+              <h3 style="margin-bottom: 4px;">📚 Fanlar va Guruhlar Ro'yxati</h3>
+              <p style="font-size: 12px; color: var(--text-muted);">Ushbu bo'limda har bir fan/guruh nomini o'zgartirishingiz mumkin</p>
+            </div>
+            <button class="btn btn-outline" style="padding: 6px 12px; font-size: 13px;" onclick="loadCategoriesManagement()">🔄 Yangilash</button>
+          </div>
+
+          <div id="categoriesManagementList" style="display: flex; flex-wrap: wrap; gap: 10px; margin-top: 10px;">
+            <span style="color: var(--text-muted); font-size: 13px;">Fanlar yuklanmoqda...</span>
+          </div>
+        </div>
+
         <!-- Questions Table -->
         <div class="admin-card">
           <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px; flex-wrap: wrap; gap: 10px;">

@@ -54,7 +54,10 @@ function switchTab(tabId) {
   if (tabId === 'overview') loadOverviewData();
   else if (tabId === 'analytics') loadAnalyticsData();
   else if (tabId === 'users') loadUsersData();
-  else if (tabId === 'questions') loadQuestionsData();
+  else if (tabId === 'questions') {
+    loadQuestionsData();
+    loadCategoriesManagement();
+  }
   else if (tabId === 'results') loadResultsData();
 }
 
@@ -501,6 +504,7 @@ async function loadQuestionsData() {
       `;
       tbody.appendChild(tr);
     });
+    loadCategoriesManagement();
   } catch (err) {
     console.error("Questions load error:", err);
   }
@@ -518,6 +522,7 @@ async function editSingleCategory(qid, currentCat) {
     });
     if (res.ok) {
       loadQuestionsData();
+      loadCategoriesManagement();
     }
   } catch (err) {
     alert("Xatolik: " + err.message);
@@ -544,9 +549,72 @@ async function renameAllCategories() {
       alert(`✅ ${data.updated_count} ta savol fani "${newCat}" ga o'zgartirildi!`);
       input.value = '';
       loadQuestionsData();
+      loadCategoriesManagement();
     }
   } catch (err) {
     alert("Xatolik: " + err.message);
+  }
+}
+
+async function loadCategoriesManagement() {
+  try {
+    const res = await fetch('/api/quiz/categories');
+    if (!res.ok) return;
+    const data = await res.json();
+    const container = document.getElementById('categoriesManagementList');
+    if (!container) return;
+
+    container.innerHTML = '';
+    const cats = data.categories || [];
+    if (cats.length === 0) {
+      container.innerHTML = '<span style="color: var(--text-muted); font-size: 13px;">Hozircha birorta ham fan qo\'shilmagan.</span>';
+      return;
+    }
+
+    cats.forEach(c => {
+      const badge = document.createElement('div');
+      badge.style.display = 'inline-flex';
+      badge.style.alignItems = 'center';
+      badge.style.gap = '8px';
+      badge.style.padding = '8px 12px';
+      badge.style.background = 'rgba(255, 255, 255, 0.05)';
+      badge.style.border = '1px solid var(--border-color)';
+      badge.style.borderRadius = '8px';
+
+      badge.innerHTML = `
+        <span style="font-weight: 600; font-size: 14px;">${escapeHtml(c.category)}</span>
+        <span style="font-size: 12px; color: var(--text-muted); background: rgba(255,255,255,0.08); padding: 2px 6px; border-radius: 4px;">${c.count} ta savol</span>
+        <button class="btn btn-outline" style="padding: 4px 8px; font-size: 12px; margin-left: 4px;" onclick="renameSpecificCategory('${escapeHtml(c.category)}')">
+          ✏️ Nomini o'zgartirish
+        </button>
+      `;
+      container.appendChild(badge);
+    });
+  } catch (err) {
+    console.error("Categories management load error:", err);
+  }
+}
+
+async function renameSpecificCategory(oldCat) {
+  const newCat = prompt(`"${oldCat}" fani uchun yangi nom kiriting:`, oldCat);
+  if (!newCat || newCat.trim() === '' || newCat.trim() === oldCat) return;
+
+  try {
+    const res = await fetch('/api/admin/questions/rename-category', {
+      method: 'POST',
+      headers: getHeaders(),
+      body: JSON.stringify({ old_category: oldCat, new_category: newCat.trim() })
+    });
+    const data = await res.json();
+    if (res.ok && data.success) {
+      alert(`✅ "${oldCat}" fani muvaffaqiyatli "${newCat.trim()}" ga o'zgartirildi! (${data.updated_count} ta savol)`);
+      loadCategoriesManagement();
+      loadQuestionsData();
+    } else {
+      alert("❌ O'zgartirishda xatolik yuz berdi!");
+    }
+  } catch (err) {
+    alert("Server bilan ulanishda xatolik: " + err.message);
   }
 }
 
