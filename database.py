@@ -86,6 +86,29 @@ def init_db():
     )
     """)
 
+    # 6. Sections table
+    cursor.execute("""
+    CREATE TABLE IF NOT EXISTS sections (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        name TEXT UNIQUE NOT NULL,
+        description TEXT DEFAULT '',
+        created_at TEXT DEFAULT CURRENT_TIMESTAMP
+    )
+    """)
+
+    # Migration for allowed_users: add allowed_sections if not exists
+    cursor.execute("PRAGMA table_info(allowed_users)")
+    cols = [r[1] for r in cursor.fetchall()]
+    if "allowed_sections" not in cols:
+        cursor.execute("ALTER TABLE allowed_users ADD COLUMN allowed_sections TEXT DEFAULT 'ALL'")
+
+    # Seed sections table from existing distinct categories
+    cursor.execute("""
+    INSERT OR IGNORE INTO sections (name)
+    SELECT DISTINCT category FROM questions 
+    WHERE category IS NOT NULL AND TRIM(category) != ''
+    """)
+
     # Set default settings if not exists
     defaults = {
         "whitelist_enabled": "true",  # Only allowed IDs can test
@@ -155,19 +178,29 @@ def is_user_allowed(telegram_id: int) -> bool:
     conn.close()
     return bool(row and row["is_active"] == 1)
 
-def add_allowed_user(telegram_id: int, full_name: str = "", username: str = "", added_by: int = 0, notes: str = "") -> bool:
+def add_allowed_user(telegram_id: int, full_name: str = "", username: str = "", added_by: int = 0, notes: str = "", allowed_sections: Any = "ALL") -> bool:
     conn = get_connection()
     cursor = conn.cursor()
     try:
+        val = "ALL"
+        if isinstance(allowed_sections, list):
+            if "ALL" in allowed_sections or "all" in allowed_sections:
+                val = "ALL"
+            else:
+                val = json.dumps([str(s).strip() for s in allowed_sections if str(s).strip()], ensure_ascii=False)
+        elif isinstance(allowed_sections, str):
+            val = allowed_sections.strip() or "ALL"
+
         cursor.execute("""
-        INSERT INTO allowed_users (telegram_id, full_name, username, added_by, added_at, is_active, notes)
-        VALUES (?, ?, ?, ?, ?, 1, ?)
+        INSERT INTO allowed_users (telegram_id, full_name, username, added_by, added_at, is_active, notes, allowed_sections)
+        VALUES (?, ?, ?, ?, ?, 1, ?, ?)
         ON CONFLICT(telegram_id) DO UPDATE SET
             full_name = excluded.full_name,
             username = excluded.username,
             is_active = 1,
-            notes = excluded.notes
-        """, (telegram_id, full_name, username, added_by, datetime.now().isoformat(), notes))
+            notes = excluded.notes,
+            allowed_sections = excluded.allowed_sections
+        """, (telegram_id, full_name, username, added_by, datetime.now().isoformat(), notes, val))
         conn.commit()
         return True
     except Exception as e:
@@ -209,6 +242,163 @@ def get_allowed_users() -> List[Dict[str, Any]]:
     rows = cursor.fetchall()
     conn.close()
     return [dict(row) for row in rows]
+
+def get_user_allowed_sections(telegram_id: int) -> List[str]:
+    """
+    Returns list of section names this user is allowed to access.
+    Admins always have access to ALL sections.
+    """
+    all_secs = [s["name"] for s in get_all_sections()]
+    if telegram_id in ADMIN_IDS:
+        return all_secs
+    
+    whitelist_mode = get_setting("whitelist_enabled", "true").lower() == "true"
+    if not whitelist_mode:
+        return all_secs
+
+    conn = get_connection()
+    cursor = conn.cursor()
+    cursor.execute("SELECT allowed_sections FROM allowed_users WHERE telegram_id = ?", (telegram_id,))
+    row = cursor.fetchone()
+    conn.close()
+
+    if not row:
+        return []
+    
+    raw = row["allowed_sections"]
+    if not raw or str(raw).strip().upper() == "ALL":
+        return all_secs
+    
+    try:
+        parsed = json.loads(raw)
+        if isinstance(parsed, list):
+            return [str(x).strip() for x in parsed if str(x).strip()]
+    except Exception:
+        pass
+    
+    return [p.strip() for p in str(raw).split(",") if p.strip()]
+
+def set_user_allowed_sections(telegram_id: int, sections: Any) -> bool:
+    """
+    Sets allowed sections for a user.
+    Can be 'ALL', or a list of section names, or a comma-separated string.
+    """
+    conn = get_connection()
+    cursor = conn.cursor()
+    try:
+        val = "ALL"
+        if isinstance(sections, list):
+            if "ALL" in sections or "all" in sections:
+                val = "ALL"
+            else:
+                val = json.dumps([str(s).strip() for s in sections if str(s).strip()], ensure_ascii=False)
+        elif isinstance(sections, str):
+            if sections.strip().upper() == "ALL":
+                val = "ALL"
+            else:
+                parts = [p.strip() for p in sections.split(",") if p.strip()]
+                val = json.dumps(parts, ensure_ascii=False)
+        
+        cursor.execute("UPDATE allowed_users SET allowed_sections = ? WHERE telegram_id = ?", (val, telegram_id))
+        conn.commit()
+        return True
+    except Exception as e:
+        logger.error(f"Error setting user sections: {e}")
+        return False
+    finally:
+        conn.close()
+
+# --- SECTIONS CRUD HELPERS ---
+def get_all_sections() -> List[Dict[str, Any]]:
+    conn = get_connection()
+    cursor = conn.cursor()
+    # Ensure any distinct category from questions is tracked in sections
+    cursor.execute("""
+    INSERT OR IGNORE INTO sections (name)
+    SELECT DISTINCT category FROM questions 
+    WHERE category IS NOT NULL AND TRIM(category) != ''
+    """)
+    conn.commit()
+
+    cursor.execute("""
+    SELECT s.id, s.name, s.description, s.created_at, COUNT(q.id) as count
+    FROM sections s
+    LEFT JOIN questions q ON q.category = s.name
+    GROUP BY s.name
+    ORDER BY count DESC, s.name ASC
+    """)
+    rows = cursor.fetchall()
+    conn.close()
+    return [{"id": r["id"], "name": r["name"], "category": r["name"], "description": r["description"], "count": r["count"], "created_at": r["created_at"]} for r in rows]
+
+def add_section(name: str, description: str = "") -> bool:
+    name = name.strip()
+    if not name:
+        return False
+    conn = get_connection()
+    cursor = conn.cursor()
+    try:
+        cursor.execute("INSERT INTO sections (name, description) VALUES (?, ?)", (name, description.strip()))
+        conn.commit()
+        return True
+    except sqlite3.IntegrityError:
+        return False
+    except Exception as e:
+        logger.error(f"Error adding section: {e}")
+        return False
+    finally:
+        conn.close()
+
+def rename_section(old_name: str, new_name: str) -> bool:
+    old_name = old_name.strip()
+    new_name = new_name.strip()
+    if not old_name or not new_name or old_name == new_name:
+        return False
+    conn = get_connection()
+    cursor = conn.cursor()
+    try:
+        cursor.execute("UPDATE sections SET name = ? WHERE name = ?", (new_name, old_name))
+        cursor.execute("UPDATE questions SET category = ? WHERE category = ?", (new_name, old_name))
+        # Update user permissions if specific section name stored
+        cursor.execute("SELECT telegram_id, allowed_sections FROM allowed_users WHERE allowed_sections != 'ALL'")
+        user_rows = cursor.fetchall()
+        for u in user_rows:
+            raw = u["allowed_sections"]
+            if raw and old_name in raw:
+                try:
+                    parsed = json.loads(raw)
+                    if isinstance(parsed, list):
+                        updated = [new_name if x == old_name else x for x in parsed]
+                        cursor.execute("UPDATE allowed_users SET allowed_sections = ? WHERE telegram_id = ?", 
+                                       (json.dumps(updated, ensure_ascii=False), u["telegram_id"]))
+                except Exception:
+                    pass
+        conn.commit()
+        return True
+    except Exception as e:
+        logger.error(f"Error renaming section: {e}")
+        return False
+    finally:
+        conn.close()
+
+def delete_section(name: str, fallback_section: str = "Umumiy") -> bool:
+    name = name.strip()
+    if not name:
+        return False
+    conn = get_connection()
+    cursor = conn.cursor()
+    try:
+        cursor.execute("DELETE FROM sections WHERE name = ?", (name,))
+        if name != fallback_section:
+            cursor.execute("INSERT OR IGNORE INTO sections (name) VALUES (?)", (fallback_section,))
+            cursor.execute("UPDATE questions SET category = ? WHERE category = ?", (fallback_section, name))
+        conn.commit()
+        return True
+    except Exception as e:
+        logger.error(f"Error deleting section: {e}")
+        return False
+    finally:
+        conn.close()
 
 # --- QUESTIONS HELPERS ---
 def add_question(question_text: str, option_a: str, option_b: str, option_c: str, option_d: str, 
@@ -303,31 +493,65 @@ def update_all_questions_category(new_category: str, old_category: Optional[str]
     conn.close()
     return updated_rows
 
-def get_categories() -> List[Dict[str, Any]]:
+def get_categories(telegram_id: Optional[int] = None) -> List[Dict[str, Any]]:
     """
-    Returns list of all categories/groups with question count for each.
+    Returns list of all sections with question count for each.
+    Always returns both 'category' and 'name' fields to ensure frontends never see undefined.
+    If telegram_id is provided, filters strictly to sections permitted for that user.
     """
     conn = get_connection()
     cursor = conn.cursor()
     cursor.execute("""
-    SELECT category, COUNT(*) as count 
-    FROM questions 
-    GROUP BY category 
-    ORDER BY count DESC, category ASC
+    INSERT OR IGNORE INTO sections (name)
+    SELECT DISTINCT category FROM questions 
+    WHERE category IS NOT NULL AND TRIM(category) != ''
+    """)
+    conn.commit()
+
+    cursor.execute("""
+    SELECT s.name, COUNT(q.id) as count 
+    FROM sections s
+    LEFT JOIN questions q ON q.category = s.name
+    GROUP BY s.name 
+    ORDER BY count DESC, s.name ASC
     """)
     rows = cursor.fetchall()
     conn.close()
-    return [dict(r) for r in rows]
 
-def get_test_questions(count: int = 50, shuffle: bool = True, category: Optional[str] = None) -> List[Dict[str, Any]]:
+    all_sections = [
+        {"category": r["name"], "name": r["name"], "count": r["count"]} 
+        for r in rows
+    ]
+
+    if telegram_id:
+        allowed = get_user_allowed_sections(telegram_id)
+        return [s for s in all_sections if s["name"] in allowed]
+
+    return all_sections
+
+def get_test_questions(count: int = 50, shuffle: bool = True, category: Optional[str] = None, telegram_id: Optional[int] = None) -> List[Dict[str, Any]]:
     conn = get_connection()
     cursor = conn.cursor()
     count = min(max(1, count), 500)
     order_clause = "ORDER BY RANDOM()" if shuffle else "ORDER BY id ASC"
+    
+    allowed = get_user_allowed_sections(telegram_id) if telegram_id else None
+
     if category and category.lower() not in ["barchasi", "all", "umumiy"]:
+        if allowed is not None and telegram_id not in ADMIN_IDS and category not in allowed:
+            conn.close()
+            return []
         cursor.execute(f"SELECT * FROM questions WHERE category = ? {order_clause} LIMIT ?", (category, count))
     else:
-        cursor.execute(f"SELECT * FROM questions {order_clause} LIMIT ?", (count,))
+        if allowed is not None and telegram_id not in ADMIN_IDS:
+            if not allowed:
+                conn.close()
+                return []
+            placeholders = ",".join("?" * len(allowed))
+            cursor.execute(f"SELECT * FROM questions WHERE category IN ({placeholders}) {order_clause} LIMIT ?", (*allowed, count))
+        else:
+            cursor.execute(f"SELECT * FROM questions {order_clause} LIMIT ?", (count,))
+            
     rows = cursor.fetchall()
     conn.close()
     return [dict(row) for row in rows]
@@ -335,7 +559,8 @@ def get_test_questions(count: int = 50, shuffle: bool = True, category: Optional
 def create_test_session(telegram_id: int, category: Optional[str] = None, count: Optional[int] = None) -> Dict[str, Any]:
     """
     Initializes a test session with:
-    - Selected category/group filter (controlled by category_filter_enabled setting)
+    - Selected section filter (controlled by category_filter_enabled setting)
+    - User section permission check (users only take tests from permitted sections)
     - Specified question count limit (capped by max_questions_limit, max 500)
     - Randomized question order (controlled by shuffle_questions setting)
     - Randomized options order (controlled by shuffle_options setting)
@@ -353,20 +578,32 @@ def create_test_session(telegram_id: int, category: Optional[str] = None, count:
     shuffle_q_enabled = get_setting("shuffle_questions", "true").lower() == "true"
     order_clause = "ORDER BY RANDOM()" if shuffle_q_enabled else "ORDER BY id ASC"
 
+    # Enforce section permissions
+    allowed_sections = get_user_allowed_sections(telegram_id)
+    if not allowed_sections and telegram_id not in ADMIN_IDS:
+        return {"error": "Sizga test topshirish uchun birorta ham bo'limga ruxsat berilmagan. Administratorga murojaat qiling.", "questions": [], "count": 0, "session_id": ""}
+
     conn = get_connection()
     cursor = conn.cursor()
 
     cat_filter_enabled = get_setting("category_filter_enabled", "true").lower() == "true"
     if cat_filter_enabled and category and category.lower() not in ["barchasi", "all"]:
+        if telegram_id not in ADMIN_IDS and category not in allowed_sections:
+            conn.close()
+            return {"error": f"Sizga '{category}' bo'limidagi testlarni ishlashga ruxsat berilmagan!", "questions": [], "count": 0, "session_id": ""}
         cursor.execute(f"SELECT * FROM questions WHERE category = ? {order_clause} LIMIT ?", (category, target_count))
     else:
-        cursor.execute(f"SELECT * FROM questions {order_clause} LIMIT ?", (target_count,))
+        if telegram_id not in ADMIN_IDS:
+            placeholders = ",".join("?" * len(allowed_sections))
+            cursor.execute(f"SELECT * FROM questions WHERE category IN ({placeholders}) {order_clause} LIMIT ?", (*allowed_sections, target_count))
+        else:
+            cursor.execute(f"SELECT * FROM questions {order_clause} LIMIT ?", (target_count,))
 
     raw_questions = [dict(r) for r in cursor.fetchall()]
     conn.close()
 
     if not raw_questions:
-        return {"error": "Tanlangan guruhda savollar mavjud emas", "questions": [], "count": 0, "session_id": ""}
+        return {"error": "Tanlangan bo'limda savollar mavjud emas", "questions": [], "count": 0, "session_id": ""}
 
     shuffle_options_enabled = get_setting("shuffle_options", "true").lower() == "true"
     
@@ -969,7 +1206,7 @@ def generate_results_excel() -> bytes:
 
     # --- SHEET 3: QIYIN SAVOLLAR TAHLILI ---
     ws3 = wb.create_sheet(title="Qiyin Savollar Tahlili")
-    headers3 = ["№", "Savol matni", "Kategoriya", "Javob berilgan", "Xato javoblar", "Xato foizi (%)"]
+    headers3 = ["№", "Savol matni", "Bo'lim", "Javob berilgan", "Xato javoblar", "Xato foizi (%)"]
     ws3.append(headers3)
 
     for col_idx, _ in enumerate(headers3, 1):

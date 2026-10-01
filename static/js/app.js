@@ -198,19 +198,41 @@ async function loadCategories() {
     if (!select) return;
 
     select.innerHTML = '';
-    const allOpt = document.createElement('option');
-    allOpt.value = 'Barchasi';
-    allOpt.innerText = `Barchasi (Aralash) - ${totalQ} ta savol`;
-    select.appendChild(allOpt);
+    
+    if (state.categories.length === 0) {
+      const opt = document.createElement('option');
+      opt.value = '';
+      opt.innerText = "Sizga ruxsat berilgan bo'limlar yo'q";
+      select.appendChild(opt);
+      state.selectedCategory = '';
+      adjustCountPillsForCategory();
+      return;
+    }
+
+    if (state.categories.length > 1) {
+      const allOpt = document.createElement('option');
+      allOpt.value = 'Barchasi';
+      allOpt.innerText = `Barcha ruxsat berilgan bo'limlar (${totalQ} ta savol)`;
+      select.appendChild(allOpt);
+    }
 
     state.categories.forEach(c => {
+      const catName = c.category || c.name || "Bo'lim";
       const opt = document.createElement('option');
-      opt.value = c.name;
-      opt.innerText = `${c.name} - ${c.count} ta savol`;
+      opt.value = catName;
+      opt.innerText = `${catName} - ${c.count} ta savol`;
       select.appendChild(opt);
     });
 
-    state.selectedCategory = 'Barchasi';
+    if (state.categories.length === 1) {
+      const single = state.categories[0];
+      state.selectedCategory = single.category || single.name || "Bo'lim";
+      select.value = state.selectedCategory;
+    } else {
+      state.selectedCategory = 'Barchasi';
+      select.value = 'Barchasi';
+    }
+
     adjustCountPillsForCategory();
   } catch (e) {
     console.error("Failed to load categories:", e);
@@ -228,9 +250,9 @@ function getMaxAvailableForCategory() {
   const maxLimit = state.settings.max_questions_limit || 500;
   let maxAvail = 0;
   if (state.selectedCategory === 'Barchasi') {
-    maxAvail = state.categories.reduce((acc, c) => acc + c.count, 0);
+    maxAvail = state.categories.reduce((acc, c) => acc + (c.count || 0), 0);
   } else {
-    const cat = state.categories.find(c => c.name === state.selectedCategory);
+    const cat = state.categories.find(c => (c.name === state.selectedCategory || c.category === state.selectedCategory));
     maxAvail = cat ? cat.count : 0;
   }
   return Math.min(maxAvail || maxLimit, maxLimit);
@@ -325,7 +347,7 @@ function onCustomCountInput(val) {
     count = maxAvail;
     const input = document.getElementById('customCountInput');
     if (input) input.value = maxAvail;
-    showToast(`Ushbu fanda jami ${maxAvail} ta savol bor`);
+    showToast(`Ushbu bo'limda jami ${maxAvail} ta savol bor`);
   }
   selectQuestionCount(count, false);
 }
@@ -389,7 +411,7 @@ async function startQuiz() {
 
     const data = await res.json();
     if (!data.questions || data.questions.length === 0) {
-      alert("Tanlangan fan yoki guruh bo'yicha savollar mavjud emas.");
+      alert("Tanlangan bo'lim bo'yicha savollar mavjud emas.");
       switchView('welcomeView');
       return;
     }
@@ -851,7 +873,7 @@ async function openHistoryModal() {
 
     catContainer.innerHTML = '';
     if (!a.category_performance || a.category_performance.length === 0) {
-      catContainer.innerHTML = `<p style="color: var(--hint-color); font-size: 13px;">Test topshirganingizdan so'ng bu yerda fanlar bo'yicha tahlil paydo bo'ladi.</p>`;
+      catContainer.innerHTML = `<p style="color: var(--hint-color); font-size: 13px;">Test topshirganingizdan so'ng bu yerda bo'limlar bo'yicha tahlil paydo bo'ladi.</p>`;
     } else {
       a.category_performance.forEach(c => {
         const row = document.createElement('div');

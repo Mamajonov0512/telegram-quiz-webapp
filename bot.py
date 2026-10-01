@@ -186,6 +186,45 @@ async def cmd_add_user(message: Message):
     else:
         await message.answer("❌ Xatolik yuz berdi!")
 
+@dp.message(Command("section"))
+async def cmd_set_section(message: Message):
+    user_id = message.from_user.id
+    if user_id not in ADMIN_IDS:
+        await message.answer("⛔ Ruxsat yo'q!")
+        return
+
+    parts = message.text.strip().split(maxsplit=2)
+    if len(parts) < 3 or not parts[1].isdigit():
+        secs = [s["name"] for s in db.get_all_sections()]
+        secs_text = ", ".join(secs) if secs else "Mavjud emas"
+        await message.answer(
+            "⚠️ <b>Noto'g'ri format!</b>\n"
+            "Foydalanish: <code>/section 12345678 Matematika,Fizika</code> yoki <code>/section 12345678 ALL</code>\n\n"
+            f"<b>Mavjud bo'limlar:</b> {secs_text}",
+            parse_mode="HTML"
+        )
+        return
+
+    target_id = int(parts[1])
+    sections_arg = parts[2].strip()
+    
+    if sections_arg.upper() == "ALL":
+        payload = "ALL"
+        disp = "Barcha bo'limlar"
+    else:
+        payload = [s.strip() for s in sections_arg.split(",") if s.strip()]
+        disp = ", ".join(payload)
+
+    success = db.set_user_allowed_sections(target_id, payload)
+    if success:
+        await message.answer(
+            f"✅ <b>Foydalanuvchi (ID: {target_id}) bo'limlari yangilandi!</b>\n"
+            f"• Ruxsat etilgan bo'limlar: <b>{disp}</b>",
+            parse_mode="HTML"
+        )
+    else:
+        await message.answer("❌ Xatolik yuz berdi. Foydalanuvchi ruxsat ro'yxatida mavjudligini tekshiring.")
+
 @dp.message(Command("del"))
 async def cmd_del_user(message: Message):
     user_id = message.from_user.id

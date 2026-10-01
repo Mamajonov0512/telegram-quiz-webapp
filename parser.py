@@ -61,7 +61,7 @@ def parse_excel(file_bytes: bytes) -> Tuple[List[Dict[str, Any]], List[str]]:
                     col_map["correct"] = idx
                 elif "izoh" in val or "explanation" in val:
                     col_map["explanation"] = idx
-                elif "kategoriya" in val or "category" in val or "fan" in val or "mavzu" in val or "subject" in val:
+                elif "kategoriya" in val or "category" in val or "bo'lim" in val or "bolim" in val or "fan" in val or "mavzu" in val or "subject" in val:
                     col_map["category"] = idx
 
             # Fallbacks if columns missing

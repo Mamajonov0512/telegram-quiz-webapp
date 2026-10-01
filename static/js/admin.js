@@ -296,11 +296,33 @@ function renderUsersTable(users) {
 
   users.forEach(u => {
     const tr = document.createElement('tr');
+    let secBadge = '';
+    const rawSec = (u.allowed_sections || 'ALL').trim();
+    if (rawSec === 'ALL' || rawSec === '') {
+      secBadge = '<span style="background: rgba(16,185,129,0.15); color: var(--success); padding: 3px 8px; border-radius: 6px; font-size: 11px; font-weight: 600;">🌐 Barcha bo\'limlar</span>';
+    } else {
+      let count = 0;
+      let label = '';
+      try {
+        const parsed = JSON.parse(rawSec);
+        if (Array.isArray(parsed)) {
+          count = parsed.length;
+          label = parsed.slice(0, 2).join(', ') + (parsed.length > 2 ? ` (+${parsed.length - 2})` : '');
+        }
+      } catch (e) {
+        const parts = rawSec.split(',').filter(x => x.trim());
+        count = parts.length;
+        label = parts.slice(0, 2).join(', ') + (parts.length > 2 ? ` (+${parts.length - 2})` : '');
+      }
+      secBadge = `<span style="background: rgba(59,130,246,0.15); color: var(--primary); padding: 3px 8px; border-radius: 6px; font-size: 11px; font-weight: 600;" title="${escapeHtml(rawSec)}">📁 ${escapeHtml(label || count + " ta bo'lim")}</span>`;
+    }
+
     tr.innerHTML = `
       <td><strong>${u.telegram_id}</strong></td>
       <td>${escapeHtml(u.full_name || '—')}</td>
       <td>${u.username ? '@' + escapeHtml(u.username) : '—'}</td>
       <td style="color: var(--text-muted); font-size: 12px;">${u.added_at ? u.added_at.slice(0, 16) : '—'}</td>
+      <td>${secBadge}</td>
       <td>
         <label class="switch">
           <input type="checkbox" ${u.is_active ? 'checked' : ''} onchange="toggleUser(${u.telegram_id}, this.checked)">
@@ -308,8 +330,11 @@ function renderUsersTable(users) {
         </label>
       </td>
       <td>
+        <button class="btn btn-outline" style="padding: 4px 8px; font-size: 12px; margin-right: 4px;" onclick="openUserSectionsModal(${u.telegram_id}, '${escapeHtml(u.full_name || 'Foydalanuvchi')}', '${escapeHtml(rawSec)}')">
+          ✏️ Bo'limlar
+        </button>
         <button class="btn btn-outline btn-danger" style="padding: 4px 8px; font-size: 12px;" onclick="deleteUser(${u.telegram_id})">
-          🗑️ O'chirish
+          🗑️
         </button>
       </td>
     `;
@@ -492,7 +517,7 @@ async function loadQuestionsData() {
         </td>
         <td><strong style="color: var(--success);">${q.correct_option}</strong></td>
         <td>
-          <span style="font-size: 12px; background: rgba(59,130,246,0.15); color: var(--primary); padding: 4px 8px; border-radius: 6px; cursor: pointer; border: 1px solid rgba(59,130,246,0.3); display: inline-block;" title="Fanni o'zgartirish uchun bosing" onclick="editSingleCategory(${q.id}, '${escapeHtml(q.category || 'Umumiy')}')">
+          <span style="font-size: 12px; background: rgba(59,130,246,0.15); color: var(--primary); padding: 4px 8px; border-radius: 6px; cursor: pointer; border: 1px solid rgba(59,130,246,0.3); display: inline-block;" title="Bo'limni o'zgartirish uchun bosing" onclick="editSingleCategory(${q.id}, '${escapeHtml(q.category || 'Umumiy')}')">
             ✏️ ${escapeHtml(q.category || 'Umumiy')}
           </span>
         </td>
@@ -510,8 +535,58 @@ async function loadQuestionsData() {
   }
 }
 
+async function createNewSection() {
+  const input = document.getElementById('newSectionNameInput');
+  const name = input ? input.value.trim() : '';
+  if (!name) {
+    alert("Iltimos, yangi bo'lim nomini kiriting!");
+    return;
+  }
+
+  try {
+    const res = await fetch('/api/admin/sections/add', {
+      method: 'POST',
+      headers: getHeaders(),
+      body: JSON.stringify({ name: name })
+    });
+    const data = await res.json();
+    if (res.ok) {
+      alert(`✅ "${name}" bo'limi muvaffaqiyatli yaratildi!`);
+      if (input) input.value = '';
+      loadCategoriesManagement();
+      loadQuestionsData();
+    } else {
+      alert(data.detail || "Bo'lim yaratishda xatolik yuz berdi!");
+    }
+  } catch (err) {
+    alert("Xatolik: " + err.message);
+  }
+}
+
+async function deleteSection(name) {
+  if (!confirm(`"${name}" bo'limini o'chirishni tasdiqlaysizmi? Undagi mavjud savollar "Umumiy" bo'limiga o'tkaziladi.`)) return;
+
+  try {
+    const res = await fetch('/api/admin/sections/delete', {
+      method: 'POST',
+      headers: getHeaders(),
+      body: JSON.stringify({ name: name })
+    });
+    if (res.ok) {
+      loadCategoriesManagement();
+      loadQuestionsData();
+      loadUsersData();
+    } else {
+      const data = await res.json();
+      alert(data.detail || "O'chirishda xatolik yuz berdi!");
+    }
+  } catch (err) {
+    alert("Xatolik: " + err.message);
+  }
+}
+
 async function editSingleCategory(qid, currentCat) {
-  const newCat = prompt("Yangi fan / kategoriya nomini kiriting:", currentCat);
+  const newCat = prompt("Yangi bo'lim nomini kiriting:", currentCat);
   if (!newCat || newCat.trim() === '' || newCat.trim() === currentCat) return;
 
   try {
@@ -533,10 +608,10 @@ async function renameAllCategories() {
   const input = document.getElementById('bulkCategoryInput');
   const newCat = input.value.trim();
   if (!newCat) {
-    alert("Iltimos, yangi fan nomini kiriting!");
+    alert("Iltimos, yangi bo'lim nomini kiriting!");
     return;
   }
-  if (!confirm(`Barcha savollarning fanini "${newCat}" deb o'zgartirmoqchimisiz?`)) return;
+  if (!confirm(`Barcha savollarning bo'limini "${newCat}" deb o'zgartirmoqchimisiz?`)) return;
 
   try {
     const res = await fetch('/api/admin/questions/rename-category', {
@@ -546,10 +621,13 @@ async function renameAllCategories() {
     });
     const data = await res.json();
     if (res.ok && data.success) {
-      alert(`✅ ${data.updated_count} ta savol fani "${newCat}" ga o'zgartirildi!`);
+      alert(`✅ ${data.updated_count} ta savol bo'limi "${newCat}" ga o'zgartirildi!`);
       input.value = '';
       loadQuestionsData();
       loadCategoriesManagement();
+      loadUsersData();
+    } else {
+      alert("Xatolik: " + (data.detail || "O'zgartirib bo'lmadi"));
     }
   } catch (err) {
     alert("Xatolik: " + err.message);
@@ -558,20 +636,21 @@ async function renameAllCategories() {
 
 async function loadCategoriesManagement() {
   try {
-    const res = await fetch('/api/quiz/categories');
+    const res = await fetch('/api/admin/sections', { headers: getHeaders() });
     if (!res.ok) return;
     const data = await res.json();
     const container = document.getElementById('categoriesManagementList');
     if (!container) return;
 
     container.innerHTML = '';
-    const cats = data.categories || [];
-    if (cats.length === 0) {
-      container.innerHTML = '<span style="color: var(--text-muted); font-size: 13px;">Hozircha birorta ham fan qo\'shilmagan.</span>';
+    const secs = data.sections || [];
+    if (secs.length === 0) {
+      container.innerHTML = '<span style="color: var(--text-muted); font-size: 13px;">Hozircha birorta ham bo\'lim qo\'shilmagan.</span>';
       return;
     }
 
-    cats.forEach(c => {
+    secs.forEach(s => {
+      const secName = s.name || s.category;
       const badge = document.createElement('div');
       badge.style.display = 'inline-flex';
       badge.style.alignItems = 'center';
@@ -582,10 +661,13 @@ async function loadCategoriesManagement() {
       badge.style.borderRadius = '8px';
 
       badge.innerHTML = `
-        <span style="font-weight: 600; font-size: 14px;">${escapeHtml(c.category)}</span>
-        <span style="font-size: 12px; color: var(--text-muted); background: rgba(255,255,255,0.08); padding: 2px 6px; border-radius: 4px;">${c.count} ta savol</span>
-        <button class="btn btn-outline" style="padding: 4px 8px; font-size: 12px; margin-left: 4px;" onclick="renameSpecificCategory('${escapeHtml(c.category)}')">
-          ✏️ Nomini o'zgartirish
+        <span style="font-weight: 600; font-size: 14px;">${escapeHtml(secName)}</span>
+        <span style="font-size: 12px; color: var(--text-muted); background: rgba(255,255,255,0.08); padding: 2px 6px; border-radius: 4px;">${s.count || 0} ta savol</span>
+        <button class="btn btn-outline" style="padding: 4px 8px; font-size: 12px; margin-left: 4px;" onclick="renameSpecificCategory('${escapeHtml(secName)}')">
+          ✏️ Tahrirlash
+        </button>
+        <button class="btn btn-outline btn-danger" style="padding: 4px 8px; font-size: 12px;" onclick="deleteSection('${escapeHtml(secName)}')">
+          🗑️
         </button>
       `;
       container.appendChild(badge);
@@ -596,25 +678,136 @@ async function loadCategoriesManagement() {
 }
 
 async function renameSpecificCategory(oldCat) {
-  const newCat = prompt(`"${oldCat}" fani uchun yangi nom kiriting:`, oldCat);
+  const newCat = prompt(`"${oldCat}" bo'limi uchun yangi nom kiriting:`, oldCat);
   if (!newCat || newCat.trim() === '' || newCat.trim() === oldCat) return;
 
   try {
-    const res = await fetch('/api/admin/questions/rename-category', {
+    const res = await fetch('/api/admin/sections/rename', {
       method: 'POST',
       headers: getHeaders(),
-      body: JSON.stringify({ old_category: oldCat, new_category: newCat.trim() })
+      body: JSON.stringify({ old_name: oldCat, new_name: newCat.trim() })
     });
     const data = await res.json();
-    if (res.ok && data.success) {
-      alert(`✅ "${oldCat}" fani muvaffaqiyatli "${newCat.trim()}" ga o'zgartirildi! (${data.updated_count} ta savol)`);
+    if (res.ok) {
+      alert(`✅ "${oldCat}" bo'limi muvaffaqiyatli "${newCat.trim()}" ga o'zgartirildi!`);
       loadCategoriesManagement();
       loadQuestionsData();
+      loadUsersData();
     } else {
-      alert("❌ O'zgartirishda xatolik yuz berdi!");
+      alert("❌ O'zgartirishda xatolik yuz berdi: " + (data.detail || ""));
     }
   } catch (err) {
     alert("Server bilan ulanishda xatolik: " + err.message);
+  }
+}
+
+// --- USER SECTIONS MODAL FUNCTIONS ---
+let currentModalUserId = null;
+let cachedAllSections = [];
+
+async function openUserSectionsModal(telegramId, name, allowedSecsRaw) {
+  currentModalUserId = telegramId;
+  const modal = document.getElementById('userSectionsModal');
+  document.getElementById('modalUserName').innerText = name || 'Foydalanuvchi';
+  document.getElementById('modalUserId').innerText = telegramId;
+
+  try {
+    const res = await fetch('/api/admin/sections', { headers: getHeaders() });
+    if (res.ok) {
+      const data = await res.json();
+      cachedAllSections = data.sections || [];
+    }
+  } catch (e) {
+    console.error("Error loading sections for modal:", e);
+  }
+
+  const listContainer = document.getElementById('modalSectionsList');
+  listContainer.innerHTML = '';
+
+  let isAll = (!allowedSecsRaw || allowedSecsRaw === 'ALL');
+  let allowedList = [];
+  if (!isAll) {
+    try {
+      allowedList = JSON.parse(allowedSecsRaw);
+    } catch(e) {
+      allowedList = allowedSecsRaw.split(',').map(s => s.trim());
+    }
+  }
+
+  const allCheck = document.getElementById('modalAllSectionsCheck');
+  allCheck.checked = isAll;
+
+  cachedAllSections.forEach(s => {
+    const sName = s.name || s.category;
+    const isChecked = isAll || allowedList.includes(sName);
+    const row = document.createElement('label');
+    row.style.display = 'flex';
+    row.style.alignItems = 'center';
+    row.style.gap = '10px';
+    row.style.padding = '8px 10px';
+    row.style.borderRadius = '6px';
+    row.style.cursor = 'pointer';
+    row.style.background = 'rgba(255,255,255,0.03)';
+    row.innerHTML = `
+      <input type="checkbox" class="user-sec-check" value="${escapeHtml(sName)}" ${isChecked ? 'checked' : ''} onchange="onUserSecCheckboxChange()">
+      <span style="font-size: 13px; font-weight: 500;">${escapeHtml(sName)}</span>
+      <span style="font-size: 11px; color: var(--text-muted); margin-left: auto;">${s.count || 0} ta savol</span>
+    `;
+    listContainer.appendChild(row);
+  });
+
+  modal.style.display = 'flex';
+}
+
+function closeUserSectionsModal() {
+  const modal = document.getElementById('userSectionsModal');
+  if (modal) modal.style.display = 'none';
+  currentModalUserId = null;
+}
+
+function toggleModalAllSections(checked) {
+  const checks = document.querySelectorAll('.user-sec-check');
+  checks.forEach(c => c.checked = checked);
+}
+
+function onUserSecCheckboxChange() {
+  const checks = document.querySelectorAll('.user-sec-check');
+  const allChecked = Array.from(checks).every(c => c.checked);
+  const allCheck = document.getElementById('modalAllSectionsCheck');
+  if (allCheck) allCheck.checked = allChecked;
+}
+
+async function saveUserSectionsFromModal() {
+  if (!currentModalUserId) return;
+  const allCheck = document.getElementById('modalAllSectionsCheck');
+  let payloadSections = 'ALL';
+
+  if (!allCheck.checked) {
+    const checks = document.querySelectorAll('.user-sec-check:checked');
+    if (checks.length === 0) {
+      alert("Iltimos, kamida bitta bo'limni tanlang yoki 'Barcha bo'limlarga ruxsat berish'ni belgilang!");
+      return;
+    }
+    payloadSections = Array.from(checks).map(c => c.value);
+  }
+
+  try {
+    const res = await fetch('/api/admin/users/sections', {
+      method: 'POST',
+      headers: getHeaders(),
+      body: JSON.stringify({
+        telegram_id: currentModalUserId,
+        sections: payloadSections
+      })
+    });
+    if (res.ok) {
+      closeUserSectionsModal();
+      loadUsersData();
+    } else {
+      alert("Xatolik yuz berdi!");
+    }
+  } catch (err) {
+    alert("Xatolik: " + err.message);
   }
 }
 

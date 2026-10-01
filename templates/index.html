@@ -72,7 +72,7 @@
       </div>
 
       <p style="font-size: 13px; color: var(--hint-color); margin-bottom: 24px;">
-        Testda qatnashish uchun yuqoridagi ID raqamingizni nusxalab, guruh yoki bot administratoriga yuboring.
+        Testda qatnashish uchun yuqoridagi ID raqamingizni nusxalab, bot administratoriga yuboring.
       </p>
 
       <button class="btn btn-primary btn-full" onclick="recheckAccess()">
@@ -92,14 +92,14 @@
         </p>
       </div>
 
-      <!-- Test Group / Category Selection -->
+      <!-- Test Section Selection -->
       <div id="categorySelectContainer" style="margin-bottom: 16px; text-align: left;">
         <label style="font-size: 13px; font-weight: 600; color: var(--hint-color); display: block; margin-bottom: 8px;">
-          📚 Test guruhini (fanini) tanlang:
+          📚 Test bo'limini tanlang:
         </label>
         <div class="category-select-wrapper">
           <select id="quizCategorySelect" class="custom-select" onchange="onCategoryChange()">
-            <option value="Barchasi">Barchasi (Aralash)</option>
+            <option value="Barchasi">Barcha ruxsat berilgan bo'limlar</option>
           </select>
         </div>
       </div>
@@ -384,7 +384,7 @@
         </div>
 
         <div style="font-weight: 600; font-size: 14px; margin-bottom: 8px;">
-          📚 Fanlar bo'yicha tahlil (Kuchli va zaif tomonlar):
+          📚 Bo'limlar bo'yicha tahlil (Kuchli va zaif tomonlar):
         </div>
         <div id="userCategoryBreakdown" style="display: flex; flex-direction: column; gap: 8px; margin-bottom: 14px;">
           <!-- Dynamic category accuracy bars -->

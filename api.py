@@ -75,6 +75,7 @@ class AddUserRequest(BaseModel):
     full_name: Optional[str] = ""
     username: Optional[str] = ""
     notes: Optional[str] = ""
+    allowed_sections: Optional[Any] = "ALL"
 
 class ToggleUserRequest(BaseModel):
     telegram_id: int
@@ -82,6 +83,21 @@ class ToggleUserRequest(BaseModel):
 
 class DeleteUserRequest(BaseModel):
     telegram_id: int
+
+class SetUserSectionsRequest(BaseModel):
+    telegram_id: int
+    sections: Any
+
+class AddSectionRequest(BaseModel):
+    name: str
+    description: Optional[str] = ""
+
+class RenameSectionRequest(BaseModel):
+    old_name: str
+    new_name: str
+
+class DeleteSectionRequest(BaseModel):
+    name: str
 
 class SettingsUpdateRequest(BaseModel):
     whitelist_enabled: Optional[bool] = None
@@ -169,8 +185,8 @@ async def check_user_access(data: AuthCheckRequest):
 
 @app.get("/api/quiz/categories")
 async def get_quiz_categories(telegram_id: Optional[int] = None):
-    cats = db.get_categories()
-    total_q = db.get_questions_count()
+    cats = db.get_categories(telegram_id=telegram_id)
+    total_q = sum(c["count"] for c in cats) if telegram_id else db.get_questions_count()
     default_count = int(db.get_setting("questions_per_test", str(DEFAULT_TEST_QUESTIONS_COUNT)))
     return {
         "categories": cats,
@@ -368,9 +384,49 @@ async def api_admin_add_user(data: AddUserRequest, x_admin_key: Optional[str] = 
         telegram_id=data.telegram_id,
         full_name=data.full_name or "",
         username=data.username or "",
-        notes=data.notes or "Veb panel orqali qo'shildi"
+        notes=data.notes or "Veb panel orqali qo'shildi",
+        allowed_sections=data.allowed_sections if data.allowed_sections is not None else "ALL"
     )
     return {"success": success}
+
+@app.post("/api/admin/users/sections")
+async def api_admin_set_user_sections(data: SetUserSectionsRequest, x_admin_key: Optional[str] = Header(None)):
+    if not verify_admin(x_admin_key):
+        raise HTTPException(status_code=401, detail="Administrator kaliti noto'g'ri.")
+    success = db.set_user_allowed_sections(data.telegram_id, data.sections)
+    return {"success": success}
+
+@app.get("/api/admin/sections")
+async def api_admin_get_sections(x_admin_key: Optional[str] = Header(None)):
+    if not verify_admin(x_admin_key):
+        raise HTTPException(status_code=401, detail="Administrator kaliti noto'g'ri.")
+    sections = db.get_all_sections()
+    return {"sections": sections}
+
+@app.post("/api/admin/sections/add")
+async def api_admin_add_section(data: AddSectionRequest, x_admin_key: Optional[str] = Header(None)):
+    if not verify_admin(x_admin_key):
+        raise HTTPException(status_code=401, detail="Administrator kaliti noto'g'ri.")
+    success = db.add_section(name=data.name, description=data.description or "")
+    if not success:
+        raise HTTPException(status_code=400, detail="Bo'lim yaratilmadi. Bu bo'lim allaqachon mavjud bo'lishi mumkin.")
+    return {"success": True, "sections": db.get_all_sections()}
+
+@app.post("/api/admin/sections/rename")
+async def api_admin_rename_section(data: RenameSectionRequest, x_admin_key: Optional[str] = Header(None)):
+    if not verify_admin(x_admin_key):
+        raise HTTPException(status_code=401, detail="Administrator kaliti noto'g'ri.")
+    success = db.rename_section(old_name=data.old_name, new_name=data.new_name)
+    if not success:
+        raise HTTPException(status_code=400, detail="Bo'lim nomini o'zgartirib bo'lmadi.")
+    return {"success": True, "sections": db.get_all_sections()}
+
+@app.post("/api/admin/sections/delete")
+async def api_admin_delete_section(data: DeleteSectionRequest, x_admin_key: Optional[str] = Header(None)):
+    if not verify_admin(x_admin_key):
+        raise HTTPException(status_code=401, detail="Administrator kaliti noto'g'ri.")
+    success = db.delete_section(name=data.name)
+    return {"success": success, "sections": db.get_all_sections()}
 
 @app.post("/api/admin/users/remove")
 async def api_admin_remove_user(data: DeleteUserRequest, x_admin_key: Optional[str] = Header(None)):
