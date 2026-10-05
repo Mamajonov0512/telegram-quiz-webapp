@@ -557,8 +557,8 @@ async function loadQuestionsData() {
       const tr = document.createElement('tr');
       tr.innerHTML = `
         <td>${idx + 1}</td>
-        <td><strong>${escapeHtml(q.question_text)}</strong></td>
-        <td style="font-size: 12px; color: var(--text-muted);">
+        <td><strong style="white-space: pre-wrap; word-break: break-word; display: block; max-width: 450px; font-weight: 500;">${escapeHtml(q.question_text)}</strong></td>
+        <td style="font-size: 12px; color: var(--text-muted); white-space: pre-wrap; word-break: break-word;">
           A: ${escapeHtml(q.option_a)}<br>
           B: ${escapeHtml(q.option_b)}<br>
           C: ${escapeHtml(q.option_c)}<br>
@@ -581,6 +581,48 @@ async function loadQuestionsData() {
     loadCategoriesManagement();
   } catch (err) {
     console.error("Questions load error:", err);
+  }
+}
+
+async function importQuestionsFromText() {
+  const textInput = document.getElementById('textImportInput');
+  const statusBox = document.getElementById('textImportStatusBox');
+  const text = textInput ? textInput.value.trim() : '';
+
+  if (!text) {
+    alert("Iltimos, avval test savollari matnini kiriting!");
+    return;
+  }
+
+  statusBox.style.display = 'block';
+  statusBox.style.background = 'rgba(59, 130, 246, 0.15)';
+  statusBox.style.color = 'var(--primary)';
+  statusBox.innerText = "⏳ Savollar tahlil qilinmoqda...";
+
+  try {
+    const res = await fetch('/api/admin/questions/import-text', {
+      method: 'POST',
+      headers: getHeaders(),
+      body: JSON.stringify({ text: text })
+    });
+
+    const data = await res.json();
+    if (res.ok && data.success) {
+      statusBox.style.background = 'rgba(16, 185, 129, 0.15)';
+      statusBox.style.color = 'var(--success)';
+      statusBox.innerHTML = `✅ <strong>Muvaffaqiyatli!</strong> ${data.parsed_count} ta savol aniqlandi va ${data.saved_count} ta savol bazaga qo'shildi. Jami: ${data.total_questions} ta.`;
+      textInput.value = '';
+      loadQuestionsData();
+    } else {
+      statusBox.style.background = 'rgba(239, 68, 68, 0.15)';
+      statusBox.style.color = 'var(--danger)';
+      const errList = data.errors ? data.errors.join('<br>') : (data.detail || "Matnni tahlil qilishda xatolik yuz berdi");
+      statusBox.innerHTML = `❌ <strong>Xatolik:</strong><br>${errList}`;
+    }
+  } catch (err) {
+    statusBox.style.background = 'rgba(239, 68, 68, 0.15)';
+    statusBox.style.color = 'var(--danger)';
+    statusBox.innerText = "Xatolik: " + err.message;
   }
 }
 

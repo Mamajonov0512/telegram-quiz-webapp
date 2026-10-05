@@ -253,9 +253,11 @@ body {
 .question-text {
   font-size: 17px;
   font-weight: 600;
-  line-height: 1.45;
+  line-height: 1.55;
   margin-bottom: 20px;
   color: var(--text-color);
+  white-space: pre-wrap;
+  word-break: break-word;
 }
 
 /* Options List */
@@ -313,6 +315,7 @@ body {
   padding-top: 3px;
   flex: 1;
   word-break: break-word;
+  white-space: pre-wrap;
 }
 
 /* Bottom Navigation Controls */

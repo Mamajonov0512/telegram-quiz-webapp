@@ -787,7 +787,7 @@ function renderReviewList(filterType) {
         </span>
       </div>
 
-      <div style="font-weight: 600; margin-bottom: 12px; font-size: 15px;">
+      <div style="font-weight: 600; margin-bottom: 12px; font-size: 15px; white-space: pre-wrap; word-break: break-word;">
         ${escapeHtml(item.question)}
       </div>
 

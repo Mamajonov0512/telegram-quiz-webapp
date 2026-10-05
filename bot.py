@@ -15,7 +15,7 @@ from aiogram.utils.keyboard import InlineKeyboardBuilder
 
 from config import BOT_TOKEN, ADMIN_IDS, WEB_APP_URL, DEFAULT_TEST_QUESTIONS_COUNT, DEFAULT_TEST_DURATION_MINUTES
 import database as db
-from parser import parse_file
+from parser import parse_file, parse_text
 
 logger = logging.getLogger(__name__)
 
@@ -330,6 +330,54 @@ async def handle_document_upload(message: Message):
     except Exception as e:
         logger.error(f"Error processing uploaded document: {e}")
         await status_msg.edit_text(f"❌ Faylni qayta ishlashda xatolik: {str(e)}")
+
+@dp.message(F.text)
+async def handle_text_question_upload(message: Message):
+    user_id = message.from_user.id
+    if user_id not in ADMIN_IDS:
+        return
+
+    text = message.text.strip()
+    if not text or text.startswith("/"):
+        return
+
+    # Check if text contains test question indicators (options A-D, question numbers, etc.)
+    import re
+    has_opts = bool(re.search(r"(?m)^[\+\*]?\s*[A-Da-d][\)\.\:]\s+", text))
+    has_q = bool(re.search(r"(?m)^\d+[\.\)]\s+", text)) or "savol" in text.lower() or "javob" in text.lower()
+
+    if not (has_opts or has_q):
+        return
+
+    status_msg = await message.answer("⏳ Yuborilgan matn tahlil qilinmoqda...")
+    try:
+        questions, errors = parse_text(text)
+        if not questions:
+            err_text = "\n".join(f"• {e}" for e in errors[:3]) if errors else "To'g'ri test savoli aniqlanmadi."
+            await status_msg.edit_text(
+                f"⚠️ <b>Savol formatida xatolik:</b>\n\n{err_text}\n\n"
+                f"<i>Namunaviy format:</i>\n"
+                f"<code>1. Savol matni\nA) Variant 1\nB) Variant 2\nC) Variant 3\nD) Variant 4\nJavob: A</code>",
+                parse_mode="HTML"
+            )
+            return
+
+        saved_count = db.bulk_add_questions(questions)
+        total_in_db = db.get_questions_count()
+
+        result_text = (
+            f"✅ <b>Savollar muvaffaqiyatli qabul qilindi!</b>\n\n"
+            f"• Aniqlandi: <b>{len(questions)} ta</b> savol\n"
+            f"• Bazaga qo'shildi: <b>{saved_count} ta</b>\n"
+            f"• Jami savollar soni: <b>{total_in_db} ta</b>\n"
+        )
+        if errors:
+            result_text += f"\n⚠️ <i>{len(errors)} ta savolda kamchilik bor:</i>\n" + "\n".join(f"• {e}" for e in errors[:2])
+
+        await status_msg.edit_text(result_text, parse_mode="HTML")
+    except Exception as e:
+        logger.error(f"Error processing text questions: {e}")
+        await status_msg.edit_text(f"❌ Xatolik yuz berdi: {str(e)}")
 
 # --- CALLBACK QUERY HANDLERS ---
 

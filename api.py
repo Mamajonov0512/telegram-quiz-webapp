@@ -15,7 +15,7 @@ from config import (
     DEFAULT_TEST_QUESTIONS_COUNT, DEFAULT_TEST_DURATION_MINUTES
 )
 import database as db
-from parser import parse_file
+from parser import parse_file, parse_text
 
 logger = logging.getLogger(__name__)
 
@@ -122,6 +122,9 @@ class UpdateCategoryRequest(BaseModel):
 class RenameAllCategoryRequest(BaseModel):
     new_category: str
     old_category: Optional[str] = None
+
+class ImportQuestionsTextRequest(BaseModel):
+    text: str
 
 # --- HTML ROUTES ---
 
@@ -524,6 +527,35 @@ async def api_admin_upload_file(
             content={
                 "success": False,
                 "errors": errors or ["Fayldan birorta ham to'g'ri savol topilmadi."]
+            }
+        )
+
+    saved_count = db.bulk_add_questions(questions)
+    total = db.get_questions_count()
+
+    return {
+        "success": True,
+        "parsed_count": len(questions),
+        "saved_count": saved_count,
+        "total_questions": total,
+        "warnings": errors
+    }
+
+@app.post("/api/admin/questions/import-text")
+async def api_admin_import_questions_text(
+    data: ImportQuestionsTextRequest, 
+    x_admin_key: Optional[str] = Header(None)
+):
+    if not verify_admin(x_admin_key):
+        raise HTTPException(status_code=401, detail="Administrator kaliti noto'g'ri.")
+    
+    questions, errors = parse_text(data.text)
+    if not questions:
+        return JSONResponse(
+            status_code=400,
+            content={
+                "success": False,
+                "errors": errors or ["Matndan birorta ham to'g'ri savol aniqlanmadi."]
             }
         )
 
