@@ -4,18 +4,23 @@ import logging
 from pathlib import Path
 from typing import Optional, Dict, Any, List
 
-from fastapi import FastAPI, Request, HTTPException, UploadFile, File, Form, Depends, Header
+from fastapi import FastAPI, Request, HTTPException, UploadFile, File, Form, Depends, Header, Query
 from fastapi.responses import HTMLResponse, JSONResponse, FileResponse, Response
 from fastapi.staticfiles import StaticFiles
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 
+import httpx
+
 from config import (
     BASE_DIR, ADMIN_IDS, ADMIN_SECRET_KEY, 
-    DEFAULT_TEST_QUESTIONS_COUNT, DEFAULT_TEST_DURATION_MINUTES
+    DEFAULT_TEST_QUESTIONS_COUNT, DEFAULT_TEST_DURATION_MINUTES,
+    WEB_APP_URL, WEBHOOK_URL, BOT_TOKEN
 )
 import database as db
 from parser import parse_file, parse_text
+from aiogram.types import Update
+from bot import get_bot, dp
 
 logger = logging.getLogger(__name__)
 
@@ -604,3 +609,115 @@ async def api_admin_update_settings(data: SettingsUpdateRequest, x_admin_key: Op
         db.set_setting("max_questions_limit", str(capped_max))
 
     return {"success": True, "settings": db.get_all_settings()}
+ 
+# --- STARTUP EVENT (DB INITIALIZATION) ---
+@app.on_event("startup")
+async def startup_event():
+    try:
+        db.init_db()
+        logger.info("Baza ma'lumotlari tekshirildi va ishga tushirildi.")
+    except Exception as e:
+        logger.error(f"Baza ishga tushirishda xatolik: {e}")
+
+def build_webhook_url(raw: str) -> str:
+    """Telegram webhook URL'ni xavfsiz va aniq formatda shakllantiradi."""
+    target = (raw or "").strip().rstrip("/")
+    if not target:
+        return ""
+    if not target.startswith("http://") and not target.startswith("https://"):
+        target = f"https://{target}"
+    if target.startswith("http://") and "localhost" not in target and "127.0.0.1" not in target:
+        target = "https://" + target[len("http://"):]
+    if target.endswith("/api/webhook"):
+        return target
+    if target.endswith("/webhook"):
+        return target[:-8] + "/api/webhook"
+    return f"{target}/api/webhook"
+
+# --- TELEGRAM WEBHOOK ROUTES (VERCEL / SERVERLESS COMPATIBILITY) ---
+@app.get("/api/webhook")
+@app.get("/webhook")
+async def webhook_health():
+    return {"ok": True, "status": "Telegram webhook endpoint faol"}
+
+@app.post("/api/webhook")
+@app.post("/webhook")
+async def telegram_webhook(request: Request):
+    bot_instance = get_bot()
+    if not bot_instance:
+        return JSONResponse({"ok": False, "error": "BOT_TOKEN ko'rsatilmagan"}, status_code=400)
+    try:
+        data = await request.json()
+        update = Update.model_validate(data, context={"bot": bot_instance})
+        await dp.feed_update(bot_instance, update)
+        return {"ok": True}
+    except Exception as e:
+        logger.error(f"Webhook update xatosi: {e}")
+        return JSONResponse({"ok": False, "error": str(e)}, status_code=500)
+
+@app.get("/api/bot/webhook-info")
+@app.get("/bot/webhook-info")
+async def get_webhook_info():
+    if not BOT_TOKEN:
+        return {"ok": False, "error": "BOT_TOKEN ko'rsatilmagan"}
+    try:
+        async with httpx.AsyncClient(timeout=10.0) as http_client:
+            resp = await http_client.get(f"https://api.telegram.org/bot{BOT_TOKEN}/getWebhookInfo")
+            return resp.json()
+    except Exception as e:
+        return {"ok": False, "error": str(e)}
+
+@app.post("/api/bot/set-webhook")
+@app.get("/api/bot/set-webhook")
+@app.post("/bot/set-webhook")
+@app.get("/bot/set-webhook")
+async def set_telegram_webhook(request: Request, url: Optional[str] = Query(None)):
+    if not BOT_TOKEN:
+        raise HTTPException(status_code=400, detail="BOT_TOKEN ko'rsatilmagan")
+    
+    # 1. Query parameter orqali berilgan URL
+    chosen_url = url or ""
+
+    # 2. POST body JSON da yuborilgan url (agar mavjud bo'lsa)
+    if not chosen_url and request.method == "POST":
+        try:
+            body = await request.json()
+            if isinstance(body, dict):
+                chosen_url = body.get("url", "")
+        except Exception:
+            pass
+
+    # 3. Environment variables (WEBHOOK_URL yoki WEB_APP_URL)
+    if not chosen_url:
+        chosen_url = WEBHOOK_URL or WEB_APP_URL
+
+    # 4. Request headerlari orqali aniqlangan domen (x-forwarded-host)
+    if not chosen_url:
+        host = request.headers.get("x-forwarded-host") or request.headers.get("host") or ""
+        if host:
+            chosen_url = f"https://{host}"
+
+    webhook_url = build_webhook_url(chosen_url)
+    if not webhook_url:
+        raise HTTPException(status_code=400, detail="Webhook URL yoki WEB_APP_URL aniqlanmadi")
+
+    try:
+        async with httpx.AsyncClient(timeout=15.0) as http_client:
+            resp = await http_client.post(
+                f"https://api.telegram.org/bot{BOT_TOKEN}/setWebhook",
+                json={"url": webhook_url}
+            )
+            tg_data = resp.json()
+
+        success = bool(tg_data.get("ok"))
+        return {
+            "ok": success,
+            "webhook_url": webhook_url,
+            "telegram_response": tg_data,
+            "message": "Telegram webhook muvaffaqiyatli o'rnatildi!" if success else tg_data.get("description", "Xatolik")
+        }
+    except Exception as e:
+        logger.error(f"Webhook o'rnatishda xatolik: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+

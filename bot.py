@@ -24,7 +24,21 @@ dp: Dispatcher = Dispatcher()
 
 def get_bot():
     global bot
-    if bot is None and BOT_TOKEN:
+    if not BOT_TOKEN:
+        return None
+    
+    if bot is not None:
+        try:
+            # Recreate bot if session is closed or bound to a closed loop
+            session = getattr(bot, "session", None)
+            if session:
+                connector = getattr(session, "_connector", None)
+                if connector and getattr(connector, "_loop", None) and connector._loop.is_closed():
+                    bot = None
+        except Exception:
+            pass
+
+    if bot is None:
         bot = Bot(token=BOT_TOKEN)
     return bot
 

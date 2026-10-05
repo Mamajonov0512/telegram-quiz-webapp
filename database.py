@@ -3,21 +3,233 @@ import json
 import logging
 import uuid
 import random
-from datetime import datetime
+from datetime import datetime, date
 from typing import List, Dict, Any, Optional
-from config import DB_PATH, ADMIN_IDS, DEFAULT_TEST_QUESTIONS_COUNT, DEFAULT_TEST_DURATION_MINUTES
+from config import DB_PATH, ADMIN_IDS, DEFAULT_TEST_QUESTIONS_COUNT, DEFAULT_TEST_DURATION_MINUTES, DATABASE_URL
 
 logger = logging.getLogger(__name__)
 
+# Try to import psycopg2 for Supabase PostgreSQL support
+try:
+    import psycopg2
+    from psycopg2.extras import RealDictCursor
+    PSYCOPG2_AVAILABLE = True
+except ImportError:
+    PSYCOPG2_AVAILABLE = False
+    RealDictCursor = None
+
+def is_postgres() -> bool:
+    """Returns True if PostgreSQL / Supabase connection is configured and available."""
+    return bool(DATABASE_URL and PSYCOPG2_AVAILABLE)
+
+def _get_pg_connection():
+    url = DATABASE_URL.strip()
+    if url.startswith("postgres://"):
+        url = "postgresql://" + url[len("postgres://"):]
+    # Append sslmode=require for remote hosts if not explicitly specified
+    if "sslmode=" not in url and "localhost" not in url and "127.0.0.1" not in url:
+        sep = "&" if "?" in url else "?"
+        url = f"{url}{sep}sslmode=require"
+    return psycopg2.connect(url)
+
+class DBConnection:
+    """Wrapper that unifies SQLite and PostgreSQL connections."""
+    def __init__(self, raw_conn, is_pg: bool):
+        self._conn = raw_conn
+        self._is_pg = is_pg
+
+    def cursor(self):
+        if self._is_pg:
+            return DBCursor(self._conn.cursor(cursor_factory=RealDictCursor), True)
+        else:
+            return DBCursor(self._conn.cursor(), False)
+
+    def commit(self):
+        self._conn.commit()
+
+    def rollback(self):
+        self._conn.rollback()
+
+    def close(self):
+        self._conn.close()
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        if exc_type:
+            self.rollback()
+        else:
+            self.commit()
+        self.close()
+
+class DBCursor:
+    """Wrapper that unifies SQLite and PostgreSQL cursors, translating ? to %s."""
+    def __init__(self, raw_cursor, is_pg: bool):
+        self._cur = raw_cursor
+        self._is_pg = is_pg
+
+    @property
+    def rowcount(self):
+        return self._cur.rowcount
+
+    @property
+    def lastrowid(self):
+        if hasattr(self._cur, "lastrowid"):
+            return self._cur.lastrowid
+        return None
+
+    def execute(self, sql: str, params=None):
+        if self._is_pg:
+            converted_sql = sql.replace("?", "%s")
+            if "INSERT OR IGNORE INTO" in converted_sql:
+                converted_sql = converted_sql.replace("INSERT OR IGNORE INTO", "INSERT INTO")
+            if params is None:
+                return self._cur.execute(converted_sql)
+            return self._cur.execute(converted_sql, params)
+        else:
+            if params is None:
+                return self._cur.execute(sql)
+            return self._cur.execute(sql, params)
+
+    def executemany(self, sql: str, seq_of_params):
+        if self._is_pg:
+            converted_sql = sql.replace("?", "%s")
+            return self._cur.executemany(converted_sql, seq_of_params)
+        else:
+            return self._cur.executemany(sql, seq_of_params)
+
+    def fetchone(self):
+        return self._cur.fetchone()
+
+    def fetchall(self):
+        return self._cur.fetchall()
+
+    def close(self):
+        self._cur.close()
+
 def get_connection():
-    conn = sqlite3.connect(str(DB_PATH), check_same_thread=False)
-    conn.row_factory = sqlite3.Row
-    return conn
+    if is_postgres():
+        conn = _get_pg_connection()
+        return DBConnection(conn, True)
+    else:
+        conn = sqlite3.connect(str(DB_PATH), check_same_thread=False)
+        conn.row_factory = sqlite3.Row
+        return DBConnection(conn, False)
+
+def row_to_dict(row) -> Dict[str, Any]:
+    if row is None:
+        return {}
+    d = dict(row)
+    for k, v in d.items():
+        if isinstance(v, (datetime, date)):
+            d[k] = v.strftime("%Y-%m-%d %H:%M:%S")
+    return d
 
 def init_db():
     conn = get_connection()
     cursor = conn.cursor()
     
+    if is_postgres():
+        # PostgreSQL / Supabase Schema Initialization
+        cursor.execute("""
+        CREATE TABLE IF NOT EXISTS allowed_users (
+            telegram_id BIGINT PRIMARY KEY,
+            full_name TEXT DEFAULT '',
+            username TEXT DEFAULT '',
+            added_by BIGINT DEFAULT 0,
+            added_at TIMESTAMPTZ DEFAULT NOW(),
+            is_active INTEGER DEFAULT 1,
+            notes TEXT DEFAULT '',
+            allowed_sections TEXT DEFAULT 'ALL'
+        );
+        CREATE TABLE IF NOT EXISTS questions (
+            id BIGSERIAL PRIMARY KEY,
+            question_text TEXT NOT NULL,
+            option_a TEXT NOT NULL,
+            option_b TEXT NOT NULL,
+            option_c TEXT NOT NULL,
+            option_d TEXT NOT NULL,
+            correct_option VARCHAR(10) NOT NULL,
+            explanation TEXT DEFAULT '',
+            category TEXT DEFAULT 'Umumiy',
+            created_at TIMESTAMPTZ DEFAULT NOW()
+        );
+        CREATE TABLE IF NOT EXISTS test_results (
+            id BIGSERIAL PRIMARY KEY,
+            telegram_id BIGINT NOT NULL,
+            full_name TEXT DEFAULT '',
+            username TEXT DEFAULT '',
+            total_questions INTEGER NOT NULL,
+            correct_answers INTEGER NOT NULL,
+            wrong_answers INTEGER NOT NULL,
+            score_percentage DOUBLE PRECISION NOT NULL,
+            time_spent_seconds INTEGER NOT NULL,
+            completed_at TIMESTAMPTZ DEFAULT NOW(),
+            answers_json TEXT DEFAULT '[]'
+        );
+        CREATE TABLE IF NOT EXISTS settings (
+            key VARCHAR(255) PRIMARY KEY,
+            value TEXT NOT NULL
+        );
+        CREATE TABLE IF NOT EXISTS test_sessions (
+            session_id VARCHAR(255) PRIMARY KEY,
+            telegram_id BIGINT NOT NULL,
+            category TEXT DEFAULT 'Barchasi',
+            questions_count INTEGER NOT NULL,
+            duration_minutes INTEGER NOT NULL,
+            session_data TEXT NOT NULL,
+            started_at TIMESTAMPTZ DEFAULT NOW(),
+            is_submitted INTEGER DEFAULT 0
+        );
+        CREATE TABLE IF NOT EXISTS sections (
+            id BIGSERIAL PRIMARY KEY,
+            name TEXT UNIQUE NOT NULL,
+            description TEXT DEFAULT '',
+            created_at TIMESTAMPTZ DEFAULT NOW()
+        );
+        """)
+
+        # Ensure column allowed_sections exists in allowed_users
+        cursor.execute("ALTER TABLE allowed_users ADD COLUMN IF NOT EXISTS allowed_sections TEXT DEFAULT 'ALL';")
+
+        # Seed sections table from existing distinct categories
+        cursor.execute("""
+        INSERT INTO sections (name)
+        SELECT DISTINCT category FROM questions 
+        WHERE category IS NOT NULL AND TRIM(category) != ''
+        ON CONFLICT (name) DO NOTHING;
+        """)
+
+        # Default platform settings
+        defaults = {
+            "whitelist_enabled": "true",
+            "questions_per_test": str(DEFAULT_TEST_QUESTIONS_COUNT),
+            "duration_minutes": str(DEFAULT_TEST_DURATION_MINUTES),
+            "pass_percentage": "60",
+            "shuffle_questions": "true",
+            "shuffle_options": "true",
+            "anti_cheat_enabled": "true",
+            "category_filter_enabled": "true",
+            "max_questions_limit": "500"
+        }
+        for k, v in defaults.items():
+            cursor.execute("INSERT INTO settings (key, value) VALUES (?, ?) ON CONFLICT (key) DO NOTHING;", (k, v))
+
+        # Add admin IDs to whitelist automatically
+        for admin_id in ADMIN_IDS:
+            cursor.execute("""
+            INSERT INTO allowed_users (telegram_id, full_name, username, added_by, notes)
+            VALUES (?, 'Administrator', 'admin', 0, 'Asosiy admin')
+            ON CONFLICT (telegram_id) DO NOTHING;
+            """, (admin_id,))
+
+        conn.commit()
+        conn.close()
+        logger.info("Supabase PostgreSQL Database initialized successfully.")
+        return
+
+    # SQLite Database Initialization
     # 1. Allowed Users / Whitelist table
     cursor.execute("""
     CREATE TABLE IF NOT EXISTS allowed_users (
@@ -40,7 +252,7 @@ def init_db():
         option_b TEXT NOT NULL,
         option_c TEXT NOT NULL,
         option_d TEXT NOT NULL,
-        correct_option TEXT NOT NULL,  -- 'A', 'B', 'C', or 'D'
+        correct_option TEXT NOT NULL,
         explanation TEXT DEFAULT '',
         category TEXT DEFAULT 'Umumiy',
         created_at TEXT DEFAULT CURRENT_TIMESTAMP
@@ -72,7 +284,7 @@ def init_db():
     )
     """)
 
-    # 5. Test Sessions table (tracks randomized questions and shuffled options per user)
+    # 5. Test Sessions table
     cursor.execute("""
     CREATE TABLE IF NOT EXISTS test_sessions (
         session_id TEXT PRIMARY KEY,
@@ -104,14 +316,15 @@ def init_db():
 
     # Seed sections table from existing distinct categories
     cursor.execute("""
-    INSERT OR IGNORE INTO sections (name)
+    INSERT INTO sections (name)
     SELECT DISTINCT category FROM questions 
     WHERE category IS NOT NULL AND TRIM(category) != ''
+    ON CONFLICT (name) DO NOTHING
     """)
 
     # Set default settings if not exists
     defaults = {
-        "whitelist_enabled": "true",  # Only allowed IDs can test
+        "whitelist_enabled": "true",
         "questions_per_test": str(DEFAULT_TEST_QUESTIONS_COUNT),
         "duration_minutes": str(DEFAULT_TEST_DURATION_MINUTES),
         "pass_percentage": "60",
@@ -123,18 +336,19 @@ def init_db():
     }
 
     for k, v in defaults.items():
-        cursor.execute("INSERT OR IGNORE INTO settings (key, value) VALUES (?, ?)", (k, v))
+        cursor.execute("INSERT INTO settings (key, value) VALUES (?, ?) ON CONFLICT (key) DO NOTHING", (k, v))
 
     # Add admin IDs to whitelist automatically
     for admin_id in ADMIN_IDS:
         cursor.execute("""
-        INSERT OR IGNORE INTO allowed_users (telegram_id, full_name, username, added_by, notes)
+        INSERT INTO allowed_users (telegram_id, full_name, username, added_by, notes)
         VALUES (?, 'Administrator', 'admin', 0, 'Asosiy admin')
+        ON CONFLICT (telegram_id) DO NOTHING
         """, (admin_id,))
 
     conn.commit()
     conn.close()
-    logger.info("Database initialized successfully.")
+    logger.info("SQLite Database initialized successfully.")
 
 # --- SETTINGS HELPERS ---
 def get_setting(key: str, default: str = "") -> str:
@@ -148,7 +362,10 @@ def get_setting(key: str, default: str = "") -> str:
 def set_setting(key: str, value: str):
     conn = get_connection()
     cursor = conn.cursor()
-    cursor.execute("INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)", (key, str(value)))
+    cursor.execute("""
+    INSERT INTO settings (key, value) VALUES (?, ?)
+    ON CONFLICT (key) DO UPDATE SET value = excluded.value
+    """, (key, str(value)))
     conn.commit()
     conn.close()
 
@@ -241,13 +458,9 @@ def get_allowed_users() -> List[Dict[str, Any]]:
     cursor.execute("SELECT * FROM allowed_users ORDER BY added_at DESC")
     rows = cursor.fetchall()
     conn.close()
-    return [dict(row) for row in rows]
+    return [row_to_dict(row) for row in rows]
 
 def get_user_allowed_sections(telegram_id: int) -> List[str]:
-    """
-    Returns list of section names this user is allowed to access.
-    Admins always have access to ALL sections.
-    """
     all_secs = [s["name"] for s in get_all_sections()]
     if telegram_id in ADMIN_IDS:
         return all_secs
@@ -279,10 +492,6 @@ def get_user_allowed_sections(telegram_id: int) -> List[str]:
     return [p.strip() for p in str(raw).split(",") if p.strip()]
 
 def set_user_allowed_sections(telegram_id: int, sections: Any) -> bool:
-    """
-    Sets allowed sections for a user.
-    Can be 'ALL', or a list of section names, or a comma-separated string.
-    """
     conn = get_connection()
     cursor = conn.cursor()
     try:
@@ -309,11 +518,6 @@ def set_user_allowed_sections(telegram_id: int, sections: Any) -> bool:
         conn.close()
 
 def record_pending_user(telegram_id: int, full_name: str = "", username: str = "", source: str = "Telegram Bot") -> bool:
-    """
-    Auto-registers user when they interact with bot or web app.
-    If already exists, updates name/username if provided.
-    If new, inserts as pending/inactive (is_active=0) or active if whitelist disabled.
-    """
     conn = get_connection()
     cursor = conn.cursor()
     try:
@@ -349,9 +553,6 @@ def record_pending_user(telegram_id: int, full_name: str = "", username: str = "
         conn.close()
 
 def activate_all_users(is_active: bool = True) -> int:
-    """
-    Activates or deactivates all users in allowed_users.
-    """
     conn = get_connection()
     cursor = conn.cursor()
     try:
@@ -366,9 +567,6 @@ def activate_all_users(is_active: bool = True) -> int:
         conn.close()
 
 def set_all_users_allowed_sections(sections: Any = "ALL") -> int:
-    """
-    Sets allowed sections for all users in allowed_users.
-    """
     conn = get_connection()
     cursor = conn.cursor()
     try:
@@ -399,11 +597,11 @@ def set_all_users_allowed_sections(sections: Any = "ALL") -> int:
 def get_all_sections() -> List[Dict[str, Any]]:
     conn = get_connection()
     cursor = conn.cursor()
-    # Ensure any distinct category from questions is tracked in sections
     cursor.execute("""
-    INSERT OR IGNORE INTO sections (name)
+    INSERT INTO sections (name)
     SELECT DISTINCT category FROM questions 
     WHERE category IS NOT NULL AND TRIM(category) != ''
+    ON CONFLICT (name) DO NOTHING
     """)
     conn.commit()
 
@@ -411,12 +609,12 @@ def get_all_sections() -> List[Dict[str, Any]]:
     SELECT s.id, s.name, s.description, s.created_at, COUNT(q.id) as count
     FROM sections s
     LEFT JOIN questions q ON q.category = s.name
-    GROUP BY s.name
+    GROUP BY s.id, s.name, s.description, s.created_at
     ORDER BY count DESC, s.name ASC
     """)
     rows = cursor.fetchall()
     conn.close()
-    return [{"id": r["id"], "name": r["name"], "category": r["name"], "description": r["description"], "count": r["count"], "created_at": r["created_at"]} for r in rows]
+    return [{"id": r["id"], "name": r["name"], "category": r["name"], "description": r["description"], "count": r["count"], "created_at": str(r["created_at"] or "")} for r in rows]
 
 def add_section(name: str, description: str = "") -> bool:
     name = name.strip()
@@ -428,8 +626,6 @@ def add_section(name: str, description: str = "") -> bool:
         cursor.execute("INSERT INTO sections (name, description) VALUES (?, ?)", (name, description.strip()))
         conn.commit()
         return True
-    except sqlite3.IntegrityError:
-        return False
     except Exception as e:
         logger.error(f"Error adding section: {e}")
         return False
@@ -446,7 +642,6 @@ def rename_section(old_name: str, new_name: str) -> bool:
     try:
         cursor.execute("UPDATE sections SET name = ? WHERE name = ?", (new_name, old_name))
         cursor.execute("UPDATE questions SET category = ? WHERE category = ?", (new_name, old_name))
-        # Update user permissions if specific section name stored
         cursor.execute("SELECT telegram_id, allowed_sections FROM allowed_users WHERE allowed_sections != 'ALL'")
         user_rows = cursor.fetchall()
         for u in user_rows:
@@ -477,7 +672,7 @@ def delete_section(name: str, fallback_section: str = "Umumiy") -> bool:
     try:
         cursor.execute("DELETE FROM sections WHERE name = ?", (name,))
         if name != fallback_section:
-            cursor.execute("INSERT OR IGNORE INTO sections (name) VALUES (?)", (fallback_section,))
+            cursor.execute("INSERT INTO sections (name) VALUES (?) ON CONFLICT (name) DO NOTHING", (fallback_section,))
             cursor.execute("UPDATE questions SET category = ? WHERE category = ?", (fallback_section, name))
         conn.commit()
         return True
@@ -492,13 +687,23 @@ def add_question(question_text: str, option_a: str, option_b: str, option_c: str
                  correct_option: str, explanation: str = "", category: str = "Umumiy") -> int:
     conn = get_connection()
     cursor = conn.cursor()
-    cursor.execute("""
-    INSERT INTO questions (question_text, option_a, option_b, option_c, option_d, correct_option, explanation, category)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-    """, (question_text.strip(), option_a.strip(), option_b.strip(), option_c.strip(), option_d.strip(), 
-          correct_option.strip().upper(), explanation.strip(), category.strip()))
+    if is_postgres():
+        cursor.execute("""
+        INSERT INTO questions (question_text, option_a, option_b, option_c, option_d, correct_option, explanation, category)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+        RETURNING id
+        """, (question_text.strip(), option_a.strip(), option_b.strip(), option_c.strip(), option_d.strip(), 
+              correct_option.strip().upper(), explanation.strip(), category.strip()))
+        row = cursor.fetchone()
+        q_id = row["id"] if row else 0
+    else:
+        cursor.execute("""
+        INSERT INTO questions (question_text, option_a, option_b, option_c, option_d, correct_option, explanation, category)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+        """, (question_text.strip(), option_a.strip(), option_b.strip(), option_c.strip(), option_d.strip(), 
+              correct_option.strip().upper(), explanation.strip(), category.strip()))
+        q_id = cursor.lastrowid
     conn.commit()
-    q_id = cursor.lastrowid
     conn.close()
     return q_id
 
@@ -534,7 +739,7 @@ def get_all_questions(limit: int = 500, offset: int = 0) -> List[Dict[str, Any]]
     cursor.execute("SELECT * FROM questions ORDER BY id DESC LIMIT ? OFFSET ?", (limit, offset))
     rows = cursor.fetchall()
     conn.close()
-    return [dict(row) for row in rows]
+    return [row_to_dict(row) for row in rows]
 
 def get_questions_count() -> int:
     conn = get_connection()
@@ -581,17 +786,13 @@ def update_all_questions_category(new_category: str, old_category: Optional[str]
     return updated_rows
 
 def get_categories(telegram_id: Optional[int] = None) -> List[Dict[str, Any]]:
-    """
-    Returns list of all sections with question count for each.
-    Always returns both 'category' and 'name' fields to ensure frontends never see undefined.
-    If telegram_id is provided, filters strictly to sections permitted for that user.
-    """
     conn = get_connection()
     cursor = conn.cursor()
     cursor.execute("""
-    INSERT OR IGNORE INTO sections (name)
+    INSERT INTO sections (name)
     SELECT DISTINCT category FROM questions 
     WHERE category IS NOT NULL AND TRIM(category) != ''
+    ON CONFLICT (name) DO NOTHING
     """)
     conn.commit()
 
@@ -641,17 +842,9 @@ def get_test_questions(count: int = 50, shuffle: bool = True, category: Optional
             
     rows = cursor.fetchall()
     conn.close()
-    return [dict(row) for row in rows]
+    return [row_to_dict(row) for row in rows]
 
 def create_test_session(telegram_id: int, category: Optional[str] = None, count: Optional[int] = None) -> Dict[str, Any]:
-    """
-    Initializes a test session with:
-    - Selected section filter (controlled by category_filter_enabled setting)
-    - User section permission check (users only take tests from permitted sections)
-    - Specified question count limit (capped by max_questions_limit, max 500)
-    - Randomized question order (controlled by shuffle_questions setting)
-    - Randomized options order (controlled by shuffle_options setting)
-    """
     max_limit = int(get_setting("max_questions_limit", "500"))
     max_limit = min(max(1, max_limit), 500)
 
@@ -686,7 +879,7 @@ def create_test_session(telegram_id: int, category: Optional[str] = None, count:
         else:
             cursor.execute(f"SELECT * FROM questions {order_clause} LIMIT ?", (target_count,))
 
-    raw_questions = [dict(r) for r in cursor.fetchall()]
+    raw_questions = [row_to_dict(r) for r in cursor.fetchall()]
     conn.close()
 
     if not raw_questions:
@@ -701,7 +894,6 @@ def create_test_session(telegram_id: int, category: Optional[str] = None, count:
     for idx, q in enumerate(raw_questions, start=1):
         original_correct = q["correct_option"].upper().strip()
         
-        # Raw options list
         raw_options = [
             ("A", q["option_a"]),
             ("B", q["option_b"]),
@@ -710,10 +902,8 @@ def create_test_session(telegram_id: int, category: Optional[str] = None, count:
         ]
 
         if shuffle_options_enabled:
-            # Shuffle options order randomly
             random.shuffle(raw_options)
 
-        # Assign new A, B, C, D keys and track where original correct answer landed
         shuffled_options = {}
         correct_shown_letter = "A"
 
@@ -722,7 +912,6 @@ def create_test_session(telegram_id: int, category: Optional[str] = None, count:
             if orig_letter == original_correct:
                 correct_shown_letter = new_letter
 
-        # Save to session map for grading
         session_questions_map[str(q["id"])] = {
             "id": q["id"],
             "question_text": q["question_text"],
@@ -732,7 +921,6 @@ def create_test_session(telegram_id: int, category: Optional[str] = None, count:
             "explanation": q.get("explanation", "")
         }
 
-        # Client-facing question (SAFE: never contains correct answer or explanation)
         client_questions.append({
             "id": q["id"],
             "index": idx,
@@ -770,9 +958,6 @@ def create_test_session(telegram_id: int, category: Optional[str] = None, count:
 
 def evaluate_session_submission(session_id: str, submitted_answers: Dict[str, str], time_spent_seconds: int,
                                 full_name: str = "", username: str = "") -> Optional[Dict[str, Any]]:
-    """
-    Accurately evaluates submitted answers against the shuffled session options.
-    """
     conn = get_connection()
     cursor = conn.cursor()
     cursor.execute("SELECT * FROM test_sessions WHERE session_id = ?", (session_id,))
@@ -824,7 +1009,6 @@ def evaluate_session_submission(session_id: str, submitted_answers: Dict[str, st
     """, (telegram_id, full_name, username, total_questions, correct_count, wrong_count,
           score_percentage, time_spent_seconds, datetime.now().strftime("%Y-%m-%d %H:%M:%S"), review_json))
     
-    # Mark session as submitted
     cursor.execute("UPDATE test_sessions SET is_submitted = 1 WHERE session_id = ?", (session_id,))
     conn.commit()
     conn.close()
@@ -846,14 +1030,25 @@ def save_test_result(telegram_id: int, full_name: str, username: str, total_ques
                      time_spent_seconds: int, answers_json: str) -> int:
     conn = get_connection()
     cursor = conn.cursor()
-    cursor.execute("""
-    INSERT INTO test_results 
-    (telegram_id, full_name, username, total_questions, correct_answers, wrong_answers, score_percentage, time_spent_seconds, completed_at, answers_json)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-    """, (telegram_id, full_name, username, total_questions, correct_answers, wrong_answers,
-          score_percentage, time_spent_seconds, datetime.now().strftime("%Y-%m-%d %H:%M:%S"), answers_json))
+    if is_postgres():
+        cursor.execute("""
+        INSERT INTO test_results 
+        (telegram_id, full_name, username, total_questions, correct_answers, wrong_answers, score_percentage, time_spent_seconds, completed_at, answers_json)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        RETURNING id
+        """, (telegram_id, full_name, username, total_questions, correct_answers, wrong_answers,
+              score_percentage, time_spent_seconds, datetime.now().strftime("%Y-%m-%d %H:%M:%S"), answers_json))
+        row = cursor.fetchone()
+        res_id = row["id"] if row else 0
+    else:
+        cursor.execute("""
+        INSERT INTO test_results 
+        (telegram_id, full_name, username, total_questions, correct_answers, wrong_answers, score_percentage, time_spent_seconds, completed_at, answers_json)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """, (telegram_id, full_name, username, total_questions, correct_answers, wrong_answers,
+              score_percentage, time_spent_seconds, datetime.now().strftime("%Y-%m-%d %H:%M:%S"), answers_json))
+        res_id = cursor.lastrowid
     conn.commit()
-    res_id = cursor.lastrowid
     conn.close()
     return res_id
 
@@ -863,7 +1058,7 @@ def get_user_results(telegram_id: int, limit: int = 10) -> List[Dict[str, Any]]:
     cursor.execute("SELECT * FROM test_results WHERE telegram_id = ? ORDER BY id DESC LIMIT ?", (telegram_id, limit))
     rows = cursor.fetchall()
     conn.close()
-    return [dict(row) for row in rows]
+    return [row_to_dict(row) for row in rows]
 
 def get_all_results(limit: int = 100) -> List[Dict[str, Any]]:
     conn = get_connection()
@@ -871,7 +1066,7 @@ def get_all_results(limit: int = 100) -> List[Dict[str, Any]]:
     cursor.execute("SELECT * FROM test_results ORDER BY id DESC LIMIT ?", (limit,))
     rows = cursor.fetchall()
     conn.close()
-    return [dict(row) for row in rows]
+    return [row_to_dict(row) for row in rows]
 
 def get_stats() -> Dict[str, Any]:
     conn = get_connection()
@@ -901,15 +1096,6 @@ def get_stats() -> Dict[str, Any]:
 # --- ADVANCED ANALYTICS FUNCTIONS ---
 
 def get_detailed_analytics() -> Dict[str, Any]:
-    """
-    Computes comprehensive analytics across all test attempts:
-    - Overall summary (participants, tests, avg score, pass rate, avg time)
-    - Score distribution (0-39%, 40-59%, 60-79%, 80-100%)
-    - Top participants leaderboard
-    - Hardest questions (highest error rates)
-    - Category accuracy analysis
-    - Daily tests trend
-    """
     conn = get_connection()
     cursor = conn.cursor()
 
@@ -985,27 +1171,38 @@ def get_detailed_analytics() -> Dict[str, Any]:
         MAX(username) as username,
         COUNT(*) as attempts_count,
         MAX(score_percentage) as best_score,
-        ROUND(AVG(score_percentage), 1) as avg_score,
-        ROUND(AVG(time_spent_seconds), 0) as avg_time
+        AVG(score_percentage) as avg_score,
+        AVG(time_spent_seconds) as avg_time
     FROM test_results
     GROUP BY telegram_id
     ORDER BY best_score DESC, avg_score DESC
     LIMIT 10
     """)
-    leaderboard = [dict(row) for row in cursor.fetchall()]
+    rows = cursor.fetchall()
+    leaderboard = []
+    for r in rows:
+        d = row_to_dict(r)
+        d["avg_score"] = round(d.get("avg_score") or 0, 1)
+        d["avg_time"] = round(d.get("avg_time") or 0, 0)
+        leaderboard.append(d)
 
     # 4. Daily trend (last 7 days)
     cursor.execute("""
     SELECT 
-        SUBSTR(completed_at, 1, 10) as test_date,
+        SUBSTR(CAST(completed_at AS TEXT), 1, 10) as test_date,
         COUNT(*) as count,
-        ROUND(AVG(score_percentage), 1) as day_avg
+        AVG(score_percentage) as day_avg
     FROM test_results
-    GROUP BY test_date
+    GROUP BY SUBSTR(CAST(completed_at AS TEXT), 1, 10)
     ORDER BY test_date DESC
     LIMIT 7
     """)
-    daily_trend = [dict(row) for row in cursor.fetchall()]
+    trend_rows = cursor.fetchall()
+    daily_trend = []
+    for r in trend_rows:
+        d = row_to_dict(r)
+        d["day_avg"] = round(d.get("day_avg") or 0, 1)
+        daily_trend.append(d)
     daily_trend.reverse()
 
     # 5. In-depth Question & Category Analysis from answers_json
@@ -1013,8 +1210,8 @@ def get_detailed_analytics() -> Dict[str, Any]:
     all_answers_rows = cursor.fetchall()
     conn.close()
 
-    question_stats = {}  # q_id -> { "question": str, "category": str, "total": int, "wrong": int }
-    category_stats = {}  # category -> { "total": int, "correct": int }
+    question_stats = {}
+    category_stats = {}
 
     for r in all_answers_rows:
         raw_json = r["answers_json"]
@@ -1028,7 +1225,6 @@ def get_detailed_analytics() -> Dict[str, Any]:
                 cat = item.get("category") or "Umumiy"
                 is_correct = bool(item.get("is_correct"))
 
-                # Question stats
                 if qid not in question_stats:
                     question_stats[qid] = {
                         "id": qid,
@@ -1041,7 +1237,6 @@ def get_detailed_analytics() -> Dict[str, Any]:
                 if not is_correct:
                     question_stats[qid]["wrong"] += 1
 
-                # Category stats
                 if cat not in category_stats:
                     category_stats[cat] = {"category": cat, "total": 0, "correct": 0}
                 category_stats[cat]["total"] += 1
@@ -1050,7 +1245,6 @@ def get_detailed_analytics() -> Dict[str, Any]:
         except Exception:
             continue
 
-    # Format hardest questions
     hardest_questions = []
     for q_data in question_stats.values():
         if q_data["total"] > 0:
@@ -1064,11 +1258,9 @@ def get_detailed_analytics() -> Dict[str, Any]:
                 "error_rate": err_rate
             })
 
-    # Sort hardest by error rate descending
     hardest_questions.sort(key=lambda x: (x["error_rate"], x["wrong_count"]), reverse=True)
     hardest_questions = hardest_questions[:10]
 
-    # Format category performance
     category_performance = []
     for cat_data in category_stats.values():
         tot = cat_data["total"]
@@ -1100,12 +1292,6 @@ def get_detailed_analytics() -> Dict[str, Any]:
     }
 
 def get_user_analytics(telegram_id: int) -> Dict[str, Any]:
-    """
-    Computes personalized analytics for a single participant:
-    - Attempt count, best score, average score
-    - Category accuracy (strong & weak areas)
-    - Trend of all tests taken
-    """
     conn = get_connection()
     cursor = conn.cursor()
 
@@ -1114,8 +1300,8 @@ def get_user_analytics(telegram_id: int) -> Dict[str, Any]:
         COUNT(*) as total_attempts,
         MAX(score_percentage) as best_score,
         MIN(score_percentage) as min_score,
-        ROUND(AVG(score_percentage), 1) as avg_score,
-        ROUND(AVG(time_spent_seconds), 0) as avg_time_sec
+        AVG(score_percentage) as avg_score,
+        AVG(time_spent_seconds) as avg_time_sec
     FROM test_results
     WHERE telegram_id = ?
     """, (telegram_id,))
@@ -1134,6 +1320,11 @@ def get_user_analytics(telegram_id: int) -> Dict[str, Any]:
             "history": []
         }
 
+    best_score = row["best_score"] or 0
+    avg_score = round(row["avg_score"] or 0, 1)
+    min_score = row["min_score"] or 0
+    avg_time_sec = int(row["avg_time_sec"] or 0)
+
     # History
     cursor.execute("""
     SELECT id, score_percentage, correct_answers, total_questions, time_spent_seconds, completed_at, answers_json
@@ -1144,7 +1335,6 @@ def get_user_analytics(telegram_id: int) -> Dict[str, Any]:
     history_rows = cursor.fetchall()
     conn.close()
 
-    # Category performance for this user
     category_stats = {}
     history_list = []
 
@@ -1155,7 +1345,7 @@ def get_user_analytics(telegram_id: int) -> Dict[str, Any]:
             "correct": r["correct_answers"],
             "total": r["total_questions"],
             "time_sec": r["time_spent_seconds"],
-            "date": r["completed_at"]
+            "date": str(r["completed_at"] or "")
         })
 
         raw_json = r["answers_json"]
@@ -1190,21 +1380,15 @@ def get_user_analytics(telegram_id: int) -> Dict[str, Any]:
 
     return {
         "total_attempts": total_attempts,
-        "best_score": row["best_score"] or 0,
-        "avg_score": row["avg_score"] or 0,
-        "min_score": row["min_score"] or 0,
-        "avg_time_min": round((row["avg_time_sec"] or 0) / 60, 1),
+        "best_score": best_score,
+        "avg_score": avg_score,
+        "min_score": min_score,
+        "avg_time_min": round(avg_time_sec / 60, 1),
         "category_performance": cat_list,
         "history": history_list
     }
 
 def generate_results_excel() -> bytes:
-    """
-    Generates a beautifully formatted Excel report (.xlsx) containing:
-    1. Barcha Natijalar (All test results)
-    2. Foydalanuvchilar Reytingi (Leaderboard)
-    3. Qiyin Savollar Tahlili (Hardest questions)
-    """
     from io import BytesIO
     import openpyxl
     from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
@@ -1212,11 +1396,9 @@ def generate_results_excel() -> bytes:
 
     wb = openpyxl.Workbook()
     
-    # Header styles
     header_fill = PatternFill(start_color="1E3A8A", end_color="1E3A8A", fill_type="solid")
     header_font = Font(name="Calibri", size=11, bold=True, color="FFFFFF")
     center_align = Alignment(horizontal="center", vertical="center")
-    left_align = Alignment(horizontal="left", vertical="center")
     thin_border = Border(
         left=Side(style='thin', color='E2E8F0'),
         right=Side(style='thin', color='E2E8F0'),
@@ -1224,7 +1406,7 @@ def generate_results_excel() -> bytes:
         bottom=Side(style='thin', color='E2E8F0')
     )
 
-    # --- SHEET 1: TEST NATIJALARI ---
+    # SHEET 1: TEST NATIJALARI
     ws1 = wb.active
     ws1.title = "Barcha Natijalar"
 
@@ -1251,7 +1433,7 @@ def generate_results_excel() -> bytes:
             f"{r['score_percentage']}%",
             passed,
             mins,
-            r["completed_at"]
+            str(r["completed_at"] or "")
         ]
         ws1.append(row_data)
         current_row = ws1.max_row
@@ -1261,7 +1443,7 @@ def generate_results_excel() -> bytes:
             if col_idx in [1, 3, 4, 5, 6, 7, 8, 9, 10]:
                 c.alignment = center_align
 
-    # --- SHEET 2: REYTING (LEADERBOARD) ---
+    # SHEET 2: REYTING (LEADERBOARD)
     ws2 = wb.create_sheet(title="Foydalanuvchilar Reytingi")
     headers2 = ["O'rin", "Ism Familiya", "Telegram ID", "Username", "Urinishlar soni", "Eng yuqori ball (%)", "O'rtacha ball (%)"]
     ws2.append(headers2)
@@ -1291,7 +1473,7 @@ def generate_results_excel() -> bytes:
             if col_idx != 2:
                 c.alignment = center_align
 
-    # --- SHEET 3: QIYIN SAVOLLAR TAHLILI ---
+    # SHEET 3: QIYIN SAVOLLAR TAHLILI
     ws3 = wb.create_sheet(title="Qiyin Savollar Tahlili")
     headers3 = ["№", "Savol matni", "Bo'lim", "Javob berilgan", "Xato javoblar", "Xato foizi (%)"]
     ws3.append(headers3)
@@ -1319,7 +1501,6 @@ def generate_results_excel() -> bytes:
             if col_idx in [1, 3, 4, 5, 6]:
                 c.alignment = center_align
 
-    # Auto-adjust column widths for all sheets
     for sheet in [ws1, ws2, ws3]:
         for col in sheet.columns:
             max_len = max(len(str(cell.value or '')) for cell in col)
@@ -1329,4 +1510,3 @@ def generate_results_excel() -> bytes:
     output = BytesIO()
     wb.save(output)
     return output.getvalue()
-

@@ -1,7 +1,7 @@
 import sys
 from fastapi.testclient import TestClient
 from api import app
-from database import init_db, add_allowed_user, is_user_allowed, get_questions_count
+from database import init_db, add_allowed_user, remove_allowed_user, is_user_allowed, get_questions_count
 
 def run_tests():
     print("[*] Testlar boshlanmoqda...")
@@ -33,6 +33,7 @@ def run_tests():
     print("[+] 3. Ruxsat berilgan ID tekshiruvi muvaffaqiyatli o'tdi (authorized: True)")
 
     # 4. Test Auth Check: unauthorized user
+    remove_allowed_user(111222333)
     res = client.post("/api/auth/check", json={
         "telegram_id": 111222333,
         "first_name": "Begona"
