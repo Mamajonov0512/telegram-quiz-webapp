@@ -325,12 +325,12 @@ function renderUsersTable(users) {
       <td>${secBadge}</td>
       <td>
         <label class="switch">
-          <input type="checkbox" ${u.is_active ? 'checked' : ''} onchange="toggleUser(${u.telegram_id}, this.checked)">
+          <input type="checkbox" ${u.is_active ? 'checked' : ''} onchange="toggleUser(${u.telegram_id}, this.checked, this)">
           <span class="slider"></span>
         </label>
       </td>
       <td>
-        <button class="btn btn-outline" style="padding: 4px 8px; font-size: 12px; margin-right: 4px;" onclick="openUserSectionsModal(${u.telegram_id}, '${escapeHtml(u.full_name || 'Foydalanuvchi')}', '${escapeHtml(rawSec)}')">
+        <button class="btn btn-outline" style="padding: 4px 8px; font-size: 12px; margin-right: 4px;" onclick="openUserSectionsModal(${u.telegram_id})">
           ✏️ Bo'limlar
         </button>
         <button class="btn btn-outline btn-danger" style="padding: 4px 8px; font-size: 12px;" onclick="deleteUser(${u.telegram_id})">
@@ -392,15 +392,64 @@ async function addUser() {
   }
 }
 
-async function toggleUser(id, isActive) {
+async function toggleUser(id, isActive, elem) {
   try {
-    await fetch('/api/admin/users/toggle', {
+    const res = await fetch('/api/admin/users/toggle', {
       method: 'POST',
       headers: getHeaders(),
       body: JSON.stringify({ telegram_id: id, is_active: isActive })
     });
+    if (res.ok) {
+      const u = cachedUsers.find(user => user.telegram_id == id);
+      if (u) u.is_active = isActive ? 1 : 0;
+    } else {
+      alert("Holatni o'zgartirishda xatolik yuz berdi!");
+      if (elem) elem.checked = !isActive;
+    }
   } catch (err) {
     console.error("Toggle error:", err);
+    alert("Server bilan aloqa xatosi: " + err.message);
+    if (elem) elem.checked = !isActive;
+  }
+}
+
+async function activateAllUsers() {
+  if (!confirm("Barcha foydalanuvchilarga test topshirish uchun ruxsat berilsinmi (faollashtirilsinmi)?")) return;
+  try {
+    const res = await fetch('/api/admin/users/activate-all', {
+      method: 'POST',
+      headers: getHeaders(),
+      body: JSON.stringify({ is_active: true })
+    });
+    if (res.ok) {
+      const data = await res.json();
+      alert(`✅ Barcha foydalanuvchilar faollashtirildi (${data.count || 0} ta)!`);
+      loadUsersData();
+    } else {
+      alert("Xatolik yuz berdi!");
+    }
+  } catch (err) {
+    alert("Xatolik: " + err.message);
+  }
+}
+
+async function setAllUsersAllSections() {
+  if (!confirm("Barcha foydalanuvchilarga barcha bo'limlardan test topshirishga ruxsat berilsinmi (ALL)?")) return;
+  try {
+    const res = await fetch('/api/admin/users/sections-all', {
+      method: 'POST',
+      headers: getHeaders(),
+      body: JSON.stringify({ sections: 'ALL' })
+    });
+    if (res.ok) {
+      const data = await res.json();
+      alert(`✅ Barcha foydalanuvchilarga barcha bo'limlar ochildi (${data.count || 0} ta)!`);
+      loadUsersData();
+    } else {
+      alert("Xatolik yuz berdi!");
+    }
+  } catch (err) {
+    alert("Xatolik: " + err.message);
   }
 }
 
@@ -705,10 +754,14 @@ async function renameSpecificCategory(oldCat) {
 let currentModalUserId = null;
 let cachedAllSections = [];
 
-async function openUserSectionsModal(telegramId, name, allowedSecsRaw) {
+async function openUserSectionsModal(telegramId, optName, optRawSec) {
   currentModalUserId = telegramId;
+  const u = cachedUsers.find(user => user.telegram_id == telegramId);
+  const name = u ? (u.full_name || 'Foydalanuvchi') : (optName || 'Foydalanuvchi');
+  const rawSec = u ? (u.allowed_sections || 'ALL') : (optRawSec || 'ALL');
+
   const modal = document.getElementById('userSectionsModal');
-  document.getElementById('modalUserName').innerText = name || 'Foydalanuvchi';
+  document.getElementById('modalUserName').innerText = name;
   document.getElementById('modalUserId').innerText = telegramId;
 
   try {
@@ -724,37 +777,42 @@ async function openUserSectionsModal(telegramId, name, allowedSecsRaw) {
   const listContainer = document.getElementById('modalSectionsList');
   listContainer.innerHTML = '';
 
-  let isAll = (!allowedSecsRaw || allowedSecsRaw === 'ALL');
+  let isAll = (!rawSec || rawSec === 'ALL' || rawSec.trim() === '');
   let allowedList = [];
   if (!isAll) {
     try {
-      allowedList = JSON.parse(allowedSecsRaw);
+      allowedList = JSON.parse(rawSec);
+      if (!Array.isArray(allowedList)) allowedList = [String(allowedList)];
     } catch(e) {
-      allowedList = allowedSecsRaw.split(',').map(s => s.trim());
+      allowedList = rawSec.split(',').map(s => s.trim()).filter(Boolean);
     }
   }
 
   const allCheck = document.getElementById('modalAllSectionsCheck');
   allCheck.checked = isAll;
 
-  cachedAllSections.forEach(s => {
-    const sName = s.name || s.category;
-    const isChecked = isAll || allowedList.includes(sName);
-    const row = document.createElement('label');
-    row.style.display = 'flex';
-    row.style.alignItems = 'center';
-    row.style.gap = '10px';
-    row.style.padding = '8px 10px';
-    row.style.borderRadius = '6px';
-    row.style.cursor = 'pointer';
-    row.style.background = 'rgba(255,255,255,0.03)';
-    row.innerHTML = `
-      <input type="checkbox" class="user-sec-check" value="${escapeHtml(sName)}" ${isChecked ? 'checked' : ''} onchange="onUserSecCheckboxChange()">
-      <span style="font-size: 13px; font-weight: 500;">${escapeHtml(sName)}</span>
-      <span style="font-size: 11px; color: var(--text-muted); margin-left: auto;">${s.count || 0} ta savol</span>
-    `;
-    listContainer.appendChild(row);
-  });
+  if (cachedAllSections.length === 0) {
+    listContainer.innerHTML = '<div style="padding: 12px; color: var(--text-muted); font-size: 13px; text-align: center;">Bo\'limlar mavjud emas. Avval test savollarini yuklang yoki bo\'lim yarating.</div>';
+  } else {
+    cachedAllSections.forEach(s => {
+      const sName = s.name || s.category;
+      const isChecked = isAll || allowedList.includes(sName);
+      const row = document.createElement('label');
+      row.style.display = 'flex';
+      row.style.alignItems = 'center';
+      row.style.gap = '10px';
+      row.style.padding = '8px 10px';
+      row.style.borderRadius = '6px';
+      row.style.cursor = 'pointer';
+      row.style.background = 'rgba(255,255,255,0.03)';
+      row.innerHTML = `
+        <input type="checkbox" class="user-sec-check" value="${escapeHtml(sName)}" ${isChecked ? 'checked' : ''} onchange="onUserSecCheckboxChange()">
+        <span style="font-size: 13px; font-weight: 500;">${escapeHtml(sName)}</span>
+        <span style="font-size: 11px; color: var(--text-muted); margin-left: auto;">${s.count || 0} ta savol</span>
+      `;
+      listContainer.appendChild(row);
+    });
+  }
 
   modal.style.display = 'flex';
 }

@@ -340,9 +340,17 @@
 
         <!-- Users Table -->
         <div class="admin-card">
-          <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px;">
+          <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px; flex-wrap: wrap; gap: 10px;">
             <h3>Ro'yxat (<span id="usersTableCount">0</span> ta)</h3>
-            <input type="text" id="userSearchInput" class="form-control" style="width: 250px;" placeholder="Qidirish (ID yoki ism)..." oninput="filterUsers()">
+            <div style="display: flex; gap: 8px; align-items: center; flex-wrap: wrap;">
+              <button class="btn btn-outline" style="font-size: 13px; padding: 7px 12px;" onclick="activateAllUsers()" title="Barcha foydalanuvchilar kalitini faollashtirish">
+                ⚡ Barchasiga ruxsat berish
+              </button>
+              <button class="btn btn-outline" style="font-size: 13px; padding: 7px 12px;" onclick="setAllUsersAllSections()" title="Barchaga hamma bo'limlarni ochish">
+                🌐 Barchaga barcha bo'limlar
+              </button>
+              <input type="text" id="userSearchInput" class="form-control" style="width: 220px;" placeholder="Qidirish (ID yoki ism)..." oninput="filterUsers()">
+            </div>
           </div>
 
           <div class="table-wrapper">

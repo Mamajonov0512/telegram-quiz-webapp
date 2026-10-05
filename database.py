@@ -308,6 +308,93 @@ def set_user_allowed_sections(telegram_id: int, sections: Any) -> bool:
     finally:
         conn.close()
 
+def record_pending_user(telegram_id: int, full_name: str = "", username: str = "", source: str = "Telegram Bot") -> bool:
+    """
+    Auto-registers user when they interact with bot or web app.
+    If already exists, updates name/username if provided.
+    If new, inserts as pending/inactive (is_active=0) or active if whitelist disabled.
+    """
+    conn = get_connection()
+    cursor = conn.cursor()
+    try:
+        cursor.execute("SELECT telegram_id, full_name, username FROM allowed_users WHERE telegram_id = ?", (telegram_id,))
+        row = cursor.fetchone()
+        if row:
+            new_name = full_name.strip() if full_name else (row["full_name"] or "")
+            new_username = username.strip().lstrip("@") if username else (row["username"] or "")
+            if new_name != (row["full_name"] or "") or new_username != (row["username"] or ""):
+                cursor.execute("""
+                    UPDATE allowed_users 
+                    SET full_name = ?, username = ?
+                    WHERE telegram_id = ?
+                """, (new_name, new_username, telegram_id))
+                conn.commit()
+            return True
+        
+        whitelist_mode = get_setting("whitelist_enabled", "true").lower() == "true"
+        initial_active = 0 if whitelist_mode else 1
+        clean_name = full_name.strip() if full_name else "Foydalanuvchi"
+        clean_user = username.strip().lstrip("@") if username else ""
+        note = f"{source} orqali murojaat qildi"
+        cursor.execute("""
+            INSERT INTO allowed_users (telegram_id, full_name, username, added_by, added_at, is_active, notes, allowed_sections)
+            VALUES (?, ?, ?, 0, ?, ?, ?, 'ALL')
+        """, (telegram_id, clean_name, clean_user, datetime.now().isoformat(), initial_active, note))
+        conn.commit()
+        return True
+    except Exception as e:
+        logger.error(f"Error recording pending user: {e}")
+        return False
+    finally:
+        conn.close()
+
+def activate_all_users(is_active: bool = True) -> int:
+    """
+    Activates or deactivates all users in allowed_users.
+    """
+    conn = get_connection()
+    cursor = conn.cursor()
+    try:
+        cursor.execute("UPDATE allowed_users SET is_active = ?", (1 if is_active else 0,))
+        count = cursor.rowcount
+        conn.commit()
+        return count
+    except Exception as e:
+        logger.error(f"Error activating all users: {e}")
+        return 0
+    finally:
+        conn.close()
+
+def set_all_users_allowed_sections(sections: Any = "ALL") -> int:
+    """
+    Sets allowed sections for all users in allowed_users.
+    """
+    conn = get_connection()
+    cursor = conn.cursor()
+    try:
+        val = "ALL"
+        if isinstance(sections, list):
+            if "ALL" in sections or "all" in sections:
+                val = "ALL"
+            else:
+                val = json.dumps([str(s).strip() for s in sections if str(s).strip()], ensure_ascii=False)
+        elif isinstance(sections, str):
+            if sections.strip().upper() == "ALL":
+                val = "ALL"
+            else:
+                parts = [p.strip() for p in sections.split(",") if p.strip()]
+                val = json.dumps(parts, ensure_ascii=False)
+        
+        cursor.execute("UPDATE allowed_users SET allowed_sections = ?", (val,))
+        count = cursor.rowcount
+        conn.commit()
+        return count
+    except Exception as e:
+        logger.error(f"Error setting all users allowed sections: {e}")
+        return 0
+    finally:
+        conn.close()
+
 # --- SECTIONS CRUD HELPERS ---
 def get_all_sections() -> List[Dict[str, Any]]:
     conn = get_connection()

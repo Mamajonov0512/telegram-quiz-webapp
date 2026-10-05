@@ -88,6 +88,12 @@ class SetUserSectionsRequest(BaseModel):
     telegram_id: int
     sections: Any
 
+class ActivateAllUsersRequest(BaseModel):
+    is_active: bool = True
+
+class SetAllUsersSectionsRequest(BaseModel):
+    sections: Any = "ALL"
+
 class AddSectionRequest(BaseModel):
     name: str
     description: Optional[str] = ""
@@ -156,6 +162,10 @@ async def check_user_access(data: AuthCheckRequest):
             "reason": "no_id",
             "message": "Telegram foydalanuvchi ma'lumotlari topilmadi."
         }
+
+    # Record user as pending if new or update their name
+    user_name = f"{data.first_name or ''} {data.last_name or ''}".strip()
+    db.record_pending_user(telegram_id, user_name, data.username or "", "Web App")
 
     is_admin = telegram_id in ADMIN_IDS
     is_allowed = db.is_user_allowed(telegram_id)
@@ -441,6 +451,20 @@ async def api_admin_toggle_user(data: ToggleUserRequest, x_admin_key: Optional[s
         raise HTTPException(status_code=401, detail="Administrator kaliti noto'g'ri.")
     success = db.toggle_user_active(data.telegram_id, data.is_active)
     return {"success": success}
+
+@app.post("/api/admin/users/activate-all")
+async def api_admin_activate_all_users(data: ActivateAllUsersRequest, x_admin_key: Optional[str] = Header(None)):
+    if not verify_admin(x_admin_key):
+        raise HTTPException(status_code=401, detail="Administrator kaliti noto'g'ri.")
+    count = db.activate_all_users(data.is_active)
+    return {"success": True, "count": count}
+
+@app.post("/api/admin/users/sections-all")
+async def api_admin_set_all_users_sections(data: SetAllUsersSectionsRequest, x_admin_key: Optional[str] = Header(None)):
+    if not verify_admin(x_admin_key):
+        raise HTTPException(status_code=401, detail="Administrator kaliti noto'g'ri.")
+    count = db.set_all_users_allowed_sections(data.sections)
+    return {"success": True, "count": count}
 
 @app.get("/api/admin/questions")
 async def api_admin_get_questions(

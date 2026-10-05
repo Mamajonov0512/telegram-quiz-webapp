@@ -70,6 +70,9 @@ async def cmd_start(message: Message):
     full_name = message.from_user.full_name or "Foydalanuvchi"
     username = message.from_user.username or ""
     
+    # Record user in whitelist as pending or update their latest info
+    db.record_pending_user(user_id, full_name, username, "Telegram Bot")
+
     is_allowed = db.is_user_allowed(user_id)
     whitelist_mode = db.get_setting("whitelist_enabled", "true").lower() == "true"
     duration = db.get_setting("duration_minutes", str(DEFAULT_TEST_DURATION_MINUTES))
@@ -89,11 +92,10 @@ async def cmd_start(message: Message):
     else:
         text = (
             f"👋 <b>Assalomu alaykum, {full_name}!</b>\n\n"
-            f"⛔ <b>Kechirasiz, sizga test topshirish uchun ruxsat berilmagan!</b>\n\n"
-            f"Tizimda faqat ro'yxatga olingan foydalanuvchilar test topshira oladi.\n\n"
-            f"Sizning Telegram ID raqamingiz:\n"
-            f"👉 <code>{user_id}</code>\n\n"
-            f"<i>Ruxsat olish uchun ushbu ID raqamni administratorga yuboring.</i>"
+            f"⛔ <b>Kechirasiz, sizga test topshirish uchun hozircha ruxsat berilmagan!</b>\n\n"
+            f"📌 Sizning so'rovingiz administratorga avtomatik tarzda yuborildi.\n"
+            f"Sizning Telegram ID raqamingiz: <code>{user_id}</code> (nusxalash uchun bosing)\n\n"
+            f"<i>Administrator boshqaruv paneli orqali ruxsat bergach, testni boshlashingiz mumkin bo'ladi.</i>"
         )
         
     await message.answer(
