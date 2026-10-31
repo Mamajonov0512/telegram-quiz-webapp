@@ -1,15 +1,39 @@
-{
-  "version": 2,
-  "builds": [
-    {
-      "src": "api/index.py",
-      "use": "@vercel/python"
+from __future__ import annotations
+
+from aiogram import Router
+from aiogram.filters import Command
+from aiogram.types import Message
+
+from config import ADMIN_IDS
+from excel_handler import validate_and_parse_excel
+
+router = Router()
+
+
+@router.message(Command("upload"))
+async def upload_command(message: Message) -> None:
+    if message.from_user.id not in ADMIN_IDS:
+        await message.answer("Administrator ruxsatiga ega bo‘lmagan foydalanuvchi Excel yuklay olmaydi.")
+        return
+    await message.answer("Excel faylni yuklang. Faqat .xlsx va .xls qo‘llab-quvvatlanadi.")
+
+
+@router.message(
+    lambda message: message.document and message.document.mime_type in {
+        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        "application/vnd.ms-excel",
     }
-  ],
-  "routes": [
-    {
-      "src": "/(.*)",
-      "dest": "api/index.py"
-    }
-  ]
-}
+)
+async def handle_excel_upload(message: Message) -> None:
+    if message.from_user.id not in ADMIN_IDS:
+        return
+    doc = message.document
+    file = await message.bot.get_file(doc.file_id)
+    downloaded = await message.bot.download_file(file.file_path)
+    result = validate_and_parse_excel(downloaded.getvalue(), year=2026, month=11)
+    await message.answer(
+        f"Import natijasi:\nJami qatorlar: {result.total_rows}\nYaroqli: {result.valid_count}\nXatolikli: {result.invalid_count}\nTakroriy: {result.duplicate_count}"
+    )
+
+
+__all__ = ["router"]
