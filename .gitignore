@@ -1,35 +1,31 @@
+.gitignore
 # Virtual environment
-venv/
-env/
-ENV/
 .venv/
+venv/
+ENV/
 
-# Environment secrets and tokens
+# Environment secrets
 .env
+.env.*
+!.env.example
 
 # Python cache and bytecode
 __pycache__/
 *.py[cod]
-*$py.class
-*.so
+*.pyo
+*.pyd
 
-# Database files
+# Databases and temp data
 *.db
 *.sqlite3
-*.db-journal
+uploads/
+tmp/
+*.log
 
-# Operating system files
-.DS_Store
-Thumbs.db
-desktop.ini
-
-# IDE and Editor files
+# IDE/editor state
 .vscode/
 .idea/
-*.swp
-*.swo
+.DS_Store
 
-# Temporary test / log artifacts
-*.log
-scratch/
-test_natijalari_tahlil.xlsx
+# OS-specific
+Thumbs.db
