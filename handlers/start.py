@@ -1,64 +1,45 @@
 from __future__ import annotations
 
-from aiogram import Dispatcher
-from aiogram.client.default import DefaultBotProperties
-from aiogram.enums import ParseMode
-from aiogram.types import BotCommand
+from aiogram import F, Router
+from aiogram.filters import Command, CommandStart
+from aiogram.types import CallbackQuery, Message
 
-from config import BOT_TOKEN
-from handlers.admin import router as admin_router
-from handlers.monthly_schedule import router as monthly_router
-from handlers.schedule import router as schedule_router
-from handlers.selection import router as selection_router
-from handlers.start import router as start_router
-from handlers.upload import router as upload_router
+router = Router()
 
 
-def create_bot():
-    from aiogram import Bot
-
-    if not BOT_TOKEN:
-        return None
-    return Bot(token=BOT_TOKEN, default=DefaultBotProperties(parse_mode=ParseMode.HTML))
-
-
-def register_commands(bot):
-    commands = [
-        BotCommand(command="start", description="Bosh menyu"),
-        BotCommand(command="today", description="Bugungi darslar"),
-        BotCommand(command="weekly", description="Haftalik jadval"),
-        BotCommand(command="monthly", description="Oylik jadval"),
-        BotCommand(command="admin", description="Administrator paneli"),
-    ]
-    if bot:
-        bot.set_my_commands(commands)
+@router.message(CommandStart())
+async def cmd_start(message: Message) -> None:
+    text = (
+        "<b>📚 Dars jadvali botiga xush kelibsiz.</b>\n\n"
+        "Quyidagi bo'limlardan birini tanlang:\n"
+        "• O‘qituvchi bo‘yicha\n"
+        "• Guruh bo‘yicha\n"
+        "• Bugungi darslar\n"
+        "• Haftalik jadval\n"
+        "• Oylik dars jadvali"
+    )
+    # Use the root bot's menu builder to avoid circular imports.
+    from bot import build_menu
+    await message.answer(text, reply_markup=build_menu())
 
 
-dp = Dispatcher()
-for router in [
-    start_router,
-    selection_router,
-    schedule_router,
-    monthly_router,
-    admin_router,
-    upload_router,
-]:
-    dp.include_router(router)
+@router.message(Command("help"))
+async def cmd_help(message: Message) -> None:
+    await message.answer(
+        "Yordam: /start - bosh menyu, /today - bugungi darslar, /weekly - haftalik jadval, "
+        "/monthly - oylik jadval, /admin - admin paneli."
+    )
 
 
-def build_menu():
-    from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
-
-    keyboard = InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="📚 O‘qituvchi bo‘yicha", callback_data="teacher_menu")],
-        [InlineKeyboardButton(text="👥 Guruh bo‘yicha", callback_data="group_menu")],
-        [InlineKeyboardButton(text="📅 Bugungi darslar", callback_data="today_schedule")],
-        [InlineKeyboardButton(text="🗓 Haftalik jadval", callback_data="weekly_schedule")],
-        [InlineKeyboardButton(text="📆 Oylik dars jadvali", callback_data="monthly_schedule")],
-        [InlineKeyboardButton(text="🔎 Qidirish", callback_data="search_menu")],
-        [InlineKeyboardButton(text="ℹ️ Yordam", callback_data="help_menu")],
-    ])
-    return keyboard
+@router.callback_query(F.data == "help_menu")
+async def help_menu(callback: CallbackQuery) -> None:
+    await callback.answer()
+    await callback.message.edit_text("Yordam: /start bosh menyu, /monthly oylik jadval, /admin admin paneli.")
 
 
-__all__ = ["create_bot", "dp", "register_commands", "build_menu"]
+@router.callback_query(F.data == "search_menu")
+async def search_menu(callback: CallbackQuery) -> None:
+    await callback.answer("Qidiruv funksiyasi uchun o‘qituvchi yoki guruh tanlang.")
+
+
+__all__ = ["router"]
